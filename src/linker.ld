@@ -2,6 +2,7 @@ ENTRY(_start)
 
 SECTIONS
 {
+	/*begin sections at 1 MiB */
 	. = 1M;
 
 	.text BLOCK(4K) : ALIGN(4K)
