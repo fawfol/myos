@@ -1,0 +1,29 @@
+# - Build Artifacts -
+*.o
+*.bin
+*.iso
+*.img
+*.sys
+*.a
+
+#specifics
+#temporary directory used to create the ISO
+isodir/
+#specific object file
+boot.o
+#keyring file
+archive-keyring.gpg
+
+#compilation/linker maps-
+*.map
+*.sym
+
+# eitor and OS metadata-
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+*.swp
+*~
+
+*.log
