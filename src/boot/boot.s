@@ -6,7 +6,8 @@
 .long 0xE4524FFB         /*checksum*/
 
 .global _start
-.global gdt_flush        /*allow C to call this function */
+.global gdt_flush        
+.global idt_flush
 
 _start:
     mov $stack_top, %esp
@@ -15,15 +16,11 @@ _start:
 1:  hlt
     jmp 1b
 
-/* func : gdt_flush
-   loads the GDT pointer and performs a far jump 
-   to reload the cs register
-*/
+/* func : gdt_flush */
 gdt_flush:
-    mov 4(%esp), %eax    /*gets the pointer to the GDT passed from C*/
-    lgdt (%eax)           /*load the GDT into the CPU register*/
+    mov 4(%esp), %eax    
+    lgdt (%eax)           
     
-    /*reload ds registers with the 0x10 offset*/
     mov $0x10, %ax       
     mov %ax, %ds
     mov %ax, %es
@@ -31,10 +28,15 @@ gdt_flush:
     mov %ax, %gs
     mov %ax, %ss
     
-    /*perform a far jump to reload the cs (0x08) */
     ljmp $0x08, $.flush_cs
 
 .flush_cs:
+    ret
+
+/* func : idt_flush */
+idt_flush:
+    mov 4(%esp), %eax
+    lidt (%eax)        
     ret
 
 .section .bss
