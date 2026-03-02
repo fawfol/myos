@@ -1,5 +1,6 @@
 #include <stdint.h>
 #include <stddef.h>
+#include "gdt.h"
 
 //VGA Color Constants
 enum vga_color {
@@ -19,6 +20,9 @@ static inline uint16_t vga_entry(unsigned char uc, uint8_t color) {
 
 void kernel_main(void) 
 {
+	
+    init_gdt();
+    
     uint16_t* terminal_buffer = (uint16_t*) 0xB8000;
     uint8_t color = vga_entry_color(VGA_COLOR_GREEN, VGA_COLOR_BLACK);
     
