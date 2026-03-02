@@ -1,13 +1,23 @@
 #!/bin/bash
 
-#assemble
-i686-linux-gnu-as src/boot/boot.s -o boot.o
+echo "Cleaning previous build..."
+rm -f *.o isodir/boot/myos.bin TenzinOs.iso
 
-# c ompile
-i686-linux-gnu-gcc -c src/kernel/kernel.c -o kernel.o -std=gnu99 -ffreestanding -O2 -Wall -Wextra
+echo "assembling boot and ints..."
+as --32 src/boot/boot.s -o boot.o && \
+as --32 src/boot/interrupts.s -o interrupts.o && \
 
-#linker
-i686-linux-gnu-gcc -T src/linker.ld -o isodir/boot/myos.bin -ffreestanding -O2 -nostdlib boot.o kernel.o -lgcc
+echo "compiling kernel base..."
+gcc -m32 -c src/kernel/kernel.c -o kernel.o -std=gnu99 -ffreestanding -O2 -Wall -Wextra -fno-stack-protector && \
+gcc -m32 -c src/kernel/gdt.c -o gdt.o -std=gnu99 -ffreestanding -O2 -Wall -Wextra -fno-stack-protector && \
+gcc -m32 -c src/kernel/idt.c -o idt.o -std=gnu99 -ffreestanding -O2 -Wall -Wextra -fno-stack-protector && \
+gcc -m32 -c src/kernel/isr.c -o isr.o -std=gnu99 -ffreestanding -O2 -Wall -Wextra -fno-stack-protector && \
+gcc -m32 -c src/kernel/pic.c -o pic.o -std=gnu99 -ffreestanding -O2 -Wall -Wextra -fno-stack-protector && \
 
-# iso
+echo "linking TenzinOs..."
+ld -m elf_i386 -T src/linker.ld -o isodir/boot/myos.bin boot.o interrupts.o kernel.o gdt.o idt.o isr.o pic.o && \
+
+echo "forging ISO..."
 grub-mkrescue -o TenzinOs.iso isodir
+
+echo "build complete"

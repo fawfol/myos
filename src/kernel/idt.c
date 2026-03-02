@@ -7,6 +7,7 @@ struct idt_ptr_struct   idt_ptr;
 
 //external assembly function to load idt
 extern void idt_flush(uint32_t);
+extern void isr33();
 
 static void idt_set_gate(uint8_t num, uint32_t base, uint16_t sel, uint8_t flags) {
     idt_entries[num].base_lo = base & 0xFFFF;
@@ -25,6 +26,11 @@ void init_idt() {
     for(int i = 0; i < 256; i++) {
         idt_set_gate(i, 0, 0, 0);
     }
+    
+    //map int33 to our assembly stub
+    //0x08 is the cs from our gdt
+    //0x8E means present, ring 0, 32-bit Interrupt Gate
+    idt_set_gate(33, (uint32_t)isr33, 0x08, 0x8E);
 
     idt_flush((uint32_t)&idt_ptr);
 }

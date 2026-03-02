@@ -1,41 +1,31 @@
 #include <stdint.h>
 #include <stddef.h>
-#include "gdt.h"
-
-//VGA Color Constants
-enum vga_color {
-    VGA_COLOR_BLACK = 0,
-    VGA_COLOR_GREEN = 2,
-    VGA_COLOR_LIGHT_GREY = 7,
-    VGA_COLOR_WHITE = 15,
-};
-
-static inline uint8_t vga_entry_color(enum vga_color fg, enum vga_color bg) {
-    return fg | bg << 4;
-}
-
-static inline uint16_t vga_entry(unsigned char uc, uint8_t color) {
-    return (uint16_t) uc | (uint16_t) color << 8;
-}
+#include "gdt.h"  
+#include "idt.h"  
+#include "pic.h" 
 
 void kernel_main(void) 
 {
-	
+    // 1. mem fouindatuon
     init_gdt();
     
-    uint16_t* terminal_buffer = (uint16_t*) 0xB8000;
-    uint8_t color = vga_entry_color(VGA_COLOR_GREEN, VGA_COLOR_BLACK);
+    // 2. int Routing Table
+    init_idt();
     
-    for (int y = 0; y < 25; y++) {
-        for (int x = 0; x < 80; x++) {
-            const int index = y * 80 + x;
-            terminal_buffer[index] = vga_entry(' ', color);
-        }
-    }
+    // 3. hardware interfacing (remap Master to 32, slave to 40)
+    pic_remap(0x20, 0x28);
+    
+    // 4. unmask the keyboard specifically
+    pic_enable_keyboard();
+    
+    // 5. safely reenable CPU ints (sti)
+    asm volatile("sti");
 
-    const char* str = "TenzinOs Kernel v0.1 Loaded Successfully.";
+    //success message
+    uint16_t* terminal_buffer = (uint16_t*) 0xB8000;
+    const char* str = "TenzinOs: Hardware Interrupts Online.";
     for (int i = 0; str[i] != '\0'; i++) {
-        terminal_buffer[i] = vga_entry(str[i], color);
+        terminal_buffer[i] = (uint16_t) str[i] | (uint16_t) 0x0A << 8; //green text
     }
 
     while (1);
