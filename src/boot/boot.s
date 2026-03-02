@@ -1,29 +1,20 @@
-.set ALIGN,    1<<0             /*align loaded modules on page boundaries */
-.set MEMINFO,  1<<1             /*provide memory map */
-.set FLAGS,    ALIGN | MEMINFO  /*multiboot 'flag' field */
-.set MAGIC,    0x1BADB002       /*let bootloader find the header */
-.set CHECKSUM, -(MAGIC + FLAGS) /* checksum of above to prove we are multiboot */
-
-/*multiboot header */
-.section .multiboot
+.section .text
 .align 4
-.long MAGIC
-.long FLAGS
-.long CHECKSUM
+/*manual multiboot header */
+.long 0x1BADB002         
+.long 0x00000003         /*flags */
+.long 0xE4524FFB         /*checksum (manual result of -(0x1BADB002 + 0x03)) */
 
-/*set up stack for C code */
+.global _start
+_start:
+    mov $stack_top, %esp
+    call kernel_main
+    cli
+1:  hlt
+    jmp 1b
+
 .section .bss
 .align 16
 stack_bottom:
-.skip 16384 # 16 KiB
+.skip 16384
 stack_top:
-
-/*entry point */
-.section .text
-.global _start
-_start:
-	mov $stack_top, %esp
-	call kernel_main
-	cli
-1:	hlt
-	jmp 1b
