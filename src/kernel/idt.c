@@ -8,6 +8,7 @@ struct idt_ptr_struct   idt_ptr;
 //external assembly function to load idt
 extern void idt_flush(uint32_t);
 extern void isr33();
+extern void isr32();
 
 static void idt_set_gate(uint8_t num, uint32_t base, uint16_t sel, uint8_t flags) {
     idt_entries[num].base_lo = base & 0xFFFF;
@@ -22,14 +23,13 @@ void init_idt() {
     idt_ptr.limit = sizeof(struct idt_entry_struct) * 256 - 1;
     idt_ptr.base  = (uint32_t)&idt_entries;
 
-    //zero out the idt initially
     for(int i = 0; i < 256; i++) {
         idt_set_gate(i, 0, 0, 0);
     }
-    
-    //map int33 to our assembly stub
-    //0x08 is the cs from our gdt
-    //0x8E means present, ring 0, 32-bit Interrupt Gate
+
+    // Map the Timer (IRQ 0) to Interrupt 32
+    idt_set_gate(32, (uint32_t)isr32, 0x08, 0x8E);
+    // Map the Keyboard (IRQ 1) to Interrupt 33
     idt_set_gate(33, (uint32_t)isr33, 0x08, 0x8E);
 
     idt_flush((uint32_t)&idt_ptr);

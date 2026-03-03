@@ -44,7 +44,7 @@ void pic_remap(int offset1, int offset2) {
 //by default PIC blocks all interrupts. 
 //we need to unmask keyboard (IRQ 1).
 void pic_enable_keyboard() {
-    // 0xFD is binary 11111101 and 0 in the second slot enables IRQ 1.
-    outb(PIC1_DATA, 0xFD);
+    //0xFC enables IRQ 0 (Timer) AND IRQ 1 keyboard
+    outb(PIC1_DATA, 0xFC);
     outb(PIC2_DATA, 0xFF);
 }

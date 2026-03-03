@@ -2,12 +2,19 @@
 .extern isr_handler      /*C function call */
 
 .global isr33            /*shoudlbe visible to idt.c*/
+.global isr32
 
 /*stub for the keyboard int 33*/
 isr33:
     cli                  /*disable interrupts while we handle this one */
     push $0              /*push dummy error code to keep the stack aligned*/
     push $33             /*push  int number so C knows who called*/
+    jmp isr_common_stub
+
+isr32:
+    cli                  
+    push $0              
+    push $32             
     jmp isr_common_stub
 
 /* The common handler that saves the CPU state */

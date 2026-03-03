@@ -2,6 +2,7 @@
 #include <stdbool.h>
 #include "io.h" 
 #include "shell.h" 
+#include "timer.h"
 
 typedef struct {
     uint32_t ds;                                     
@@ -36,25 +37,27 @@ const char kbd_us_shift[128] = {
 };
 
 void isr_handler(registers_t regs) {
-    if (regs.int_no == 33) {
+    // === TIMER INTERRUPT ===
+    if (regs.int_no == 32) {
+        timer_handler();
+        outb(0x20, 0x20); //send EOI
+    }
+    // === KEYBOARD INTERRUPT ===
+    else if (regs.int_no == 33) {
         uint8_t scancode = inb(0x60);
 
-        // === SHIFT KEY LOGIC ===
-        //left shift make (0x2A) or right shift make (0x36)
+        //send EOI IMMEDIATELY before running any shell commands
+        outb(0x20, 0x20); 
+
+        //shift key logic
         if (scancode == 0x2A || scancode == 0x36) {
             shift_pressed = true;
         } 
-        //left shift break (0xAA) or right shift break (0xB6)
-        //break codes are always Make code + 0x80
         else if (scancode == 0xAA || scancode == 0xB6) {
             shift_pressed = false;
         } 
-        // === NORMAL KEYPRESS ===
-        //if its a make code highest bit is 0
         else if (!(scancode & 0x80)) {
             char c;
-            
-            //choose correct array based on shift state
             if (shift_pressed) {
                 c = kbd_us_shift[scancode];
             } else {
@@ -65,8 +68,5 @@ void isr_handler(registers_t regs) {
                 shell_handle_keypress(c);
             }
         }
-        
-        //send EOI to PIC
-        outb(0x20, 0x20); 
     }
 }
