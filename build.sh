@@ -16,9 +16,10 @@ gcc -m32 -c src/kernel/isr.c -o isr.o -std=gnu99 -ffreestanding -O2 -Wall -Wextr
 gcc -m32 -c src/kernel/pic.c -o pic.o -std=gnu99 -ffreestanding -O2 -Wall -Wextra -fno-stack-protector
 gcc -m32 -c src/kernel/shell.c -o shell.o -std=gnu99 -ffreestanding -O2 -Wall -Wextra -fno-stack-protector
 gcc -m32 -c src/kernel/timer.c -o timer.o -std=gnu99 -ffreestanding -O2 -Wall -Wextra -fno-stack-protector
+gcc -m32 -c src/kernel/paging.c -o paging.o -std=gnu99 -ffreestanding -O2 -Wall -Wextra -fno-stack-protector
 
 echo "linking KalsangOS..."
-ld -m elf_i386 --no-warn-rwx-segments -T src/linker.ld -o isodir/boot/myos.bin boot.o interrupts.o kernel.o gdt.o idt.o isr.o pic.o shell.o timer.o
+ld -m elf_i386 --no-warn-rwx-segments -T src/linker.ld -o isodir/boot/myos.bin boot.o interrupts.o kernel.o gdt.o idt.o isr.o pic.o shell.o timer.o paging.o
 
 echo "forging ISO..."
 grub-mkrescue -o KalsangOS.iso isodir
