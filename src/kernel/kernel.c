@@ -27,6 +27,12 @@ void kernel_main(void)
     for (int i = 0; str[i] != '\0'; i++) {
         terminal_buffer[i] = (uint16_t) str[i] | (uint16_t) 0x0A << 8; //green text
     }
+    
+    const char* prompt = "TenzinOs> ";
+    int prompt_index = 80; //start a beginning of second line
+    for (int i = 0; prompt[i] != '\0'; i++) {
+        terminal_buffer[prompt_index++] = (uint16_t) prompt[i] | (uint16_t) 0x0F << 8;
+    }
 
     while (1);
 }
