@@ -1,5 +1,5 @@
 #include <stdint.h>
-#include "io.h" // We need this to use inb() and outb()
+#include "io.h" 
 
 typedef struct {
     uint32_t ds;                                     
@@ -8,11 +8,16 @@ typedef struct {
     uint32_t eip, cs, eflags, useresp, ss;           
 } registers_t;
 
-//global tracker for where the next letter should be printed
+//terminal state
 uint32_t terminal_index = 160; 
+uint16_t* terminal_buffer = (uint16_t*) 0xB8000;
 
-//scan Code Set 1 (US QWERTY)
-//maps the raw hardware integers to their ASCII characters.
+//keyboard buffer state
+#define BUFFER_SIZE 256
+char key_buffer[BUFFER_SIZE];
+int key_index = 0;
+
+//US QWERTY Map
 const char kbd_us[128] = {
     0,  27, '1', '2', '3', '4', '5', '6', '7', '8', '9', '0', '-', '=', '\b',   
   '\t', 'q', 'w', 'e', 'r', 't', 'y', 'u', 'i', 'o', 'p', '[', ']', '\n',   
@@ -23,33 +28,103 @@ const char kbd_us[128] = {
     0,    0,   0,   0,   0,   0,   0,   0,   0   
 };
 
-void isr_handler(registers_t regs) {
+// --- Custom C LibFunc ---
+
+//cpmpare two strings returns 0 for match
+int strcmp(const char *s1, const char *s2) {
+    while (*s1 && (*s1 == *s2)) {
+        s1++;
+        s2++;
+    }
+    return *(const unsigned char*)s1 - *(const unsigned char*)s2;
+}
+
+//print a string to the screen
+void terminal_print(const char* str) {
+    for (int i = 0; str[i] != '\0'; i++) {
+        if (str[i] == '\n') {
+            terminal_index = terminal_index + 80 - (terminal_index % 80);
+        } else {
+            terminal_buffer[terminal_index++] = (uint16_t) str[i] | (uint16_t) 0x0F << 8;
+        }
+        if (terminal_index >= 2000) terminal_index = 0;
+    }
+}
+
+//clear the entire screen
+void terminal_clear() {
+    for (int i = 0; i < 2000; i++) {
+        terminal_buffer[i] = (uint16_t) ' ' | (uint16_t) 0x0F << 8;
+    }
+    terminal_index = 0;
+}
+
+// --- shell logic ---
+
+void execute_command() {
+    //drop down a line before printing the output
+    terminal_index = terminal_index + 80 - (terminal_index % 80);
+
+    //terminate the string so strcmp knows where it ends
+    key_buffer[key_index] = '\0'; 
+
+    if (key_index == 0) {
+        //user just pressed enter without typing anything
+    } 
+    else if (strcmp(key_buffer, "help") == 0) {
+        terminal_print("TenzinOs Commands: \n");
+        terminal_print("- help : Shows this menu\n");
+        terminal_print("- clear: Clears the screen");
+    } 
+    else if (strcmp(key_buffer, "clear") == 0) {
+        terminal_clear();
+    } 
+    else {
+        terminal_print("Unknown command: ");
+        terminal_print(key_buffer);
+    }
+
+    //reset buffer for the next command
+    key_index = 0;
+    for(int i = 0; i < BUFFER_SIZE; i++) key_buffer[i] = 0;
     
-    //check if interrupt is from keyboard (IRQ 1 -> Int 33)
+    // Print the prompt again
+    terminal_print("\nTenzinOs> ");
+}
+
+// --- int handler ---
+
+void isr_handler(registers_t regs) {
     if (regs.int_no == 33) {
-        
-        // 1. read raw Scan Code from the keyboard's data port
         uint8_t scancode = inb(0x60);
 
-        // 2. determine if its a make code (key pressed) or break code (key released)
-        // if highest bit (0x80) is 0, the key was pressed down
         if (!(scancode & 0x80)) {
             char c = kbd_us[scancode];
             
-            // 3. if its a printable charactr then put it on the screen
             if (c != 0) {
-                uint16_t* terminal_buffer = (uint16_t*) 0xB8000;
-                
-                //print the character in white text (0x0F)
-                terminal_buffer[terminal_index] = (uint16_t) c | (uint16_t) 0x0F << 8;
-                
-                //move the cursor forward
-                terminal_index++;
+                //BACKSPACE
+                if (c == '\b') {
+                    if (key_index > 0) {
+                        key_index--; //remove from buffer
+                        terminal_index--; //move cursor back
+                        terminal_buffer[terminal_index] = (uint16_t) ' ' | (uint16_t) 0x0F << 8; 
+                    }
+                } 
+                //ENTER
+                else if (c == '\n') {
+                    execute_command();
+                } 
+                //NORMAL CHARACTER
+                else {
+                    if (key_index < BUFFER_SIZE - 1) {
+                        key_buffer[key_index++] = c; //save to buffer
+                        terminal_buffer[terminal_index++] = (uint16_t) c | (uint16_t) 0x0F << 8; //print
+                    }
+                }
+
+                if (terminal_index >= 2000) terminal_index = 0;
             }
         }
-
-        // 4. send the eoi signal to the Master PIC (Port 0x20)
-        // tells hardware for next key press
-        outb(0x20, 0x20);
+        outb(0x20, 0x20); //send EOI
     }
 }

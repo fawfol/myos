@@ -23,7 +23,7 @@ void kernel_main(void)
 
     //success message
     uint16_t* terminal_buffer = (uint16_t*) 0xB8000;
-    const char* str = "TenzinOs: Hardware Interrupts Online.";
+    const char* str = "KalsangOS : Hardware Interrupts Online";
     for (int i = 0; str[i] != '\0'; i++) {
         terminal_buffer[i] = (uint16_t) str[i] | (uint16_t) 0x0A << 8; //green text
     }
