@@ -4,5 +4,7 @@
 void init_shell();
 void shell_handle_keypress(char c);
 void terminal_print(const char* str);
+void terminal_clear();
+void terminal_print_number(uint32_t num);
 
 #endif

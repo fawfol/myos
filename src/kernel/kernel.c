@@ -6,8 +6,9 @@
 #include "shell.h" 
 #include "timer.h"
 #include "paging.h"
+#include "memory.h"
 
-void kernel_main(void) 
+void kernel_main(uint32_t mboot_ptr) 
 {
     //1. mem foundation
     init_gdt();
@@ -24,6 +25,8 @@ void kernel_main(void)
     
     //5. vm enable
     init_paging();
+    //start heap allocator
+    init_dynamic_memory();
     
     //6. start the ui
     init_shell();

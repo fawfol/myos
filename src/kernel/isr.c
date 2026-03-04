@@ -4,6 +4,32 @@
 #include "shell.h" 
 #include "timer.h"
 
+char *exception_messages[] = {
+    "Division By Zero",
+    "Debug",
+    "Non Maskable Interrupt",
+    "Breakpoint",
+    "Into Detected Overflow",
+    "Out of Bounds",
+    "Invalid Opcode",
+    "No Coprocessor",
+    "Double Fault",
+    "Coprocessor Segment Overrun",
+    "Bad TSS",
+    "Segment Not Present",
+    "Stack Fault",
+    "General Protection Fault",
+    "Page Fault",
+    "Unknown Interrupt",
+    "Coprocessor Fault",
+    "Alignment Check",
+    "Machine Check",
+    "SIMD Floating-Point",
+    "Virtualization",
+    "Control Protection",
+    "Reserved", "Reserved", "Reserved", "Reserved", "Reserved", "Reserved", "Reserved", "Reserved", "Reserved", "Reserved"
+};
+
 typedef struct {
     uint32_t ds;                                     
     uint32_t edi, esi, ebp, esp, ebx, edx, ecx, eax; 
@@ -37,35 +63,47 @@ const char kbd_us_shift[128] = {
 };
 
 void isr_handler(registers_t regs) {
-    // === TIMER INTERRUPT ===
-    if (regs.int_no == 32) {
-        timer_handler();
-        outb(0x20, 0x20); //send EOI
-    }
-    // === KEYBOARD INTERRUPT ===
-    else if (regs.int_no == 33) {
-        uint8_t scancode = inb(0x60);
+    if (regs.int_no < 32) {
+        terminal_clear();
+        terminal_print("Exception: ");
+        terminal_print(exception_messages[regs.int_no]);
+        
+        if (regs.int_no == 14) {
+            uint32_t faulting_address;
+            asm volatile("mov %%cr2, %0" : "=r" (faulting_address));
+            terminal_print("\nType: PAGE FAULT");
+            terminal_print("\nFaulting Address: ");
+            terminal_print_number(faulting_address);
+        }
+        
+        terminal_print("\nEIP: "); 
+        terminal_print_number(regs.eip);
+        
+        //system stops here
+        asm volatile("cli; hlt"); 
+    } 
+    else {    
+        // === TIMER INTERRUPT ===
+        if (regs.int_no == 32) {
+            timer_handler();
+            outb(0x20, 0x20);
+        }
+        // === KEYBOARD INTERRUPT ===
+        else if (regs.int_no == 33) {
+            uint8_t scancode = inb(0x60);
+            outb(0x20, 0x20); 
 
-        //send EOI IMMEDIATELY before running any shell commands
-        outb(0x20, 0x20); 
-
-        //shift key logic
-        if (scancode == 0x2A || scancode == 0x36) {
-            shift_pressed = true;
-        } 
-        else if (scancode == 0xAA || scancode == 0xB6) {
-            shift_pressed = false;
-        } 
-        else if (!(scancode & 0x80)) {
-            char c;
-            if (shift_pressed) {
-                c = kbd_us_shift[scancode];
-            } else {
-                c = kbd_us[scancode];
-            }
-            
-            if (c != 0) {
-                shell_handle_keypress(c);
+            if (scancode == 0x2A || scancode == 0x36) {
+                shift_pressed = true;
+            } 
+            else if (scancode == 0xAA || scancode == 0xB6) {
+                shift_pressed = false;
+            } 
+            else if (!(scancode & 0x80)) {
+                char c = shift_pressed ? kbd_us_shift[scancode] : kbd_us[scancode];
+                if (c != 0) {
+                    shell_handle_keypress(c);
+                }
             }
         }
     }

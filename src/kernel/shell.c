@@ -2,6 +2,7 @@
 #include "io.h"
 #include "shell.h"
 #include "timer.h"
+#include "memory.h"
 
 uint16_t* terminal_buffer = (uint16_t*) 0xB8000;
 uint32_t terminal_index = 0;
@@ -10,6 +11,21 @@ uint8_t current_color = 0x0F;
 #define BUFFER_SIZE 256
 char key_buffer[BUFFER_SIZE];
 int key_index = 0;
+
+//force a Division by Zero (Exception 0)
+void trigger_divide_by_zero() {
+    int a = 5;
+    int b = 0;
+    int c = a / b; //trigger the exception
+    terminal_print_number(c); 
+}
+
+//force a Page Fault (Exception 14)
+void trigger_page_fault() {
+    uint32_t *ptr = (uint32_t*)0xDEADBEEF; //unmapped address
+    uint32_t do_fault = *ptr;              //trying to read it
+    terminal_print_number(do_fault);
+}
 
 // === HARDWARE CURSOR ===
 void update_cursor(int index) {
@@ -32,9 +48,8 @@ int strncmp(const char *s1, const char *s2, int n) {
 }
 
 void terminal_clear() {
-    for (int i = 0; i < 2000; i++) {
-        terminal_buffer[i] = (uint16_t) ' ' | (uint16_t) current_color << 8;
-    }
+    uint16_t blank = (uint16_t) ' ' | (uint16_t) current_color << 8;
+    memset16(terminal_buffer, blank, 2000); 
     terminal_index = 0;
     update_cursor(terminal_index);
 }
@@ -119,6 +134,40 @@ void execute_command() {
             terminal_print("Unknown color. Try: red, green, blue, white, matrix\n");
         }
     } 
+    else if (strcmp(key_buffer, "testcrash") == 0) {
+		terminal_print("Triggering Division by Zero...\n");
+		trigger_divide_by_zero();
+	}
+    // === DYNAMIC MEMORY ECHO COMMAND ===
+    else if (strncmp(key_buffer, "echo ", 5) == 0) {
+        //point arg to the text immediately following echo
+        const char* arg = key_buffer + 5; 
+        
+        //calculate the exact length of the users sentence
+        int len = 0;
+        while (arg[len] != '\0') {
+            len++;
+        }
+        
+        //ask heap for exactly 'len + 1' bytes of RAM for '\o' null termintor
+        char* dynamic_string = (char*) malloc(len + 1);
+        
+        if (dynamic_string != NULL) {
+            //copy string character by character into our newly allocated heap memory
+            for (int i = 0; i <= len; i++) {
+                dynamic_string[i] = arg[i];
+            }
+            
+            //print it back to the screen
+            terminal_print(dynamic_string);
+            terminal_print("\n");
+            
+            //CRITICAL = give memory back so the OS doesnt run out of RAM
+            free(dynamic_string);
+        } else {
+            terminal_print("ERROR: Heap Out of Memory!\n");
+        }
+    }
     else if (strcmp(key_buffer, "sysinfo") == 0) {
         terminal_print("KalsangOS System Information\n");
         terminal_print("----------------------------\n");
@@ -181,6 +230,55 @@ void execute_command() {
             terminal_print("Usage: sleep <seconds> (e.g., sleep 3)\n");
         }
     }
+    else if (strcmp(key_buffer, "malloc") == 0) {
+        terminal_print("Testing Dynamic Memory...\n");
+        
+        //ask the OS for 10 bytes of RAM on the fly
+        char* dynamic_string = (char*) malloc(10);
+        
+        if (dynamic_string != NULL) {
+            //write data into our newly acquired RAM
+            dynamic_string[0] = 'H';
+            dynamic_string[1] = 'e';
+            dynamic_string[2] = 'l';
+            dynamic_string[3] = 'l';
+            dynamic_string[4] = 'o';
+            dynamic_string[5] = '\0';
+            
+            terminal_print("Stored in Heap: ");
+            terminal_print(dynamic_string);
+            terminal_print("\n");
+            
+            //give RAM back to the OS
+            free(dynamic_string);
+            terminal_print("Memory freed successfully\n");
+        } else {
+            terminal_print("ERROR: Out of memory!\n");
+        }
+    }
+    // === MEMSTAT COMMAND ===
+    else if (strcmp(key_buffer, "memstat") == 0) {
+        uint32_t mem_used = 0;
+        uint32_t mem_free = 0;
+        
+        get_mem_stats(&mem_used, &mem_free);
+        
+        terminal_print("KalsangOS Memory Statistics:\n");
+        terminal_print("----------------------------\n");
+        
+        terminal_print("Heap Total: ");
+        //heap total HEAP_SIZE (2MB) 2097152
+        terminal_print_number(2097152); 
+        terminal_print(" bytes\n");
+        
+        terminal_print("Heap Used:  ");
+        terminal_print_number(mem_used);
+        terminal_print(" bytes\n");
+        
+        terminal_print("Heap Free:  ");
+        terminal_print_number(mem_free);
+        terminal_print(" bytes\n");
+    }
     else {
         terminal_print("Unknown command: ");
         terminal_print(key_buffer);
@@ -215,6 +313,13 @@ void shell_handle_keypress(char c) {
 
 void init_shell() {
     terminal_clear();
-    terminal_print("KalsangOS: Hardware Ints Online\n");
+    
+    //print boot sequence
+    terminal_print("KalsangOS Boot Sequence:\n");
+    terminal_print("[OK] Hardware Interrupts\n");
+    terminal_print("[OK] System Timer (100Hz)\n");
+    terminal_print("[OK] Virtual Memory (Paging)\n");
+    terminal_print("--------------------------------\n");
+    
     terminal_print("KalsangOS> ");
 }

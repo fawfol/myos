@@ -11,8 +11,12 @@
 
 _start:
     mov $stack_top, %esp
+    
+    # EBX contains the physical address of the multiboot info structure
+    # We push it as an argument for kernel_main(uint32_t mboot_ptr)
+    push %ebx 
+    
     call kernel_main
-    cli
 1:  hlt
     jmp 1b
 
