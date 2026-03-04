@@ -3,6 +3,7 @@
 #include "shell.h"
 #include "timer.h"
 #include "memory.h"
+#include "vfs.h"
 
 uint16_t* terminal_buffer = (uint16_t*) 0xB8000;
 uint32_t terminal_index = 0;
@@ -99,6 +100,28 @@ uint32_t string_to_int(const char* str) {
     return res;
 }
 
+uint32_t hex_to_int(char *str) {
+    uint32_t val = 0;
+    while (*str) {
+        uint8_t byte = *str++;
+        if (byte >= '0' && byte <= '9') byte = byte - '0';
+        else if (byte >= 'a' && byte <= 'f') byte = byte - 'a' + 10;
+        else if (byte >= 'A' && byte <= 'F') byte = byte - 'A' + 10;
+        else break;
+        val = (val << 4) | (byte & 0xF);
+    }
+    return val;
+}
+
+uint32_t atoi(char *str) {
+    uint32_t res = 0;
+    for (int i = 0; str[i] != '\0'; ++i) {
+        if (str[i] < '0' || str[i] > '9') break;
+        res = res * 10 + str[i] - '0';
+    }
+    return res;
+}
+
 // === SHELL LOGIC ===
 void execute_command() {
     terminal_print("\n");
@@ -112,9 +135,18 @@ void execute_command() {
         terminal_print("- help    : Shows this menu\n");
         terminal_print("- clear   : Clears the screen\n");
         terminal_print("- color   : Changes text color (red, green, blue, matrix, white)\n");
+        terminal_print("- testcrash  : Computer crash by exception simulation and halts CPU\n");
         terminal_print("- sysinfo : Displays hardware information\n");
         terminal_print("- uptime  : Shows how long the OS has been running\n");
         terminal_print("- reboot  : Restarts the computer\n");
+        terminal_print("- sleep  : CPU enters low power mode for mentioned duration of seconds\n");
+        terminal_print("- memstat  : Display memory stats\n");
+        terminal_print("- malloc  : Memory allocat\n");
+        terminal_print("- ls  : List directory content\n");
+        terminal_print("- cat  :  \n");
+        terminal_print("- peek  : peek [address_in_hex]\n");
+        terminal_print("- scan  : scan memory starting at your module address\n");
+        
     } 
     else if (strcmp(key_buffer, "clear") == 0) {
         terminal_clear();
@@ -142,13 +174,11 @@ void execute_command() {
     else if (strncmp(key_buffer, "echo ", 5) == 0) {
         //point arg to the text immediately following echo
         const char* arg = key_buffer + 5; 
-        
         //calculate the exact length of the users sentence
         int len = 0;
         while (arg[len] != '\0') {
             len++;
         }
-        
         //ask heap for exactly 'len + 1' bytes of RAM for '\o' null termintor
         char* dynamic_string = (char*) malloc(len + 1);
         
@@ -157,11 +187,9 @@ void execute_command() {
             for (int i = 0; i <= len; i++) {
                 dynamic_string[i] = arg[i];
             }
-            
             //print it back to the screen
             terminal_print(dynamic_string);
             terminal_print("\n");
-            
             //CRITICAL = give memory back so the OS doesnt run out of RAM
             free(dynamic_string);
         } else {
@@ -227,7 +255,7 @@ void execute_command() {
                 sleep(1);
             }
         } else {
-            terminal_print("Usage: sleep <seconds> (e.g., sleep 3)\n");
+            terminal_print("Usage: sleep <seconds> (e.g : sleep 3)\n");
         }
     }
     else if (strcmp(key_buffer, "malloc") == 0) {
@@ -267,8 +295,7 @@ void execute_command() {
         terminal_print("----------------------------\n");
         
         terminal_print("Heap Total: ");
-        //heap total HEAP_SIZE (2MB) 2097152
-        terminal_print_number(2097152); 
+        terminal_print_number(mem_used+mem_free); 
         terminal_print(" bytes\n");
         
         terminal_print("Heap Used:  ");
@@ -279,7 +306,82 @@ void execute_command() {
         terminal_print_number(mem_free);
         terminal_print(" bytes\n");
     }
-    else {
+    
+    // === LS comd ===
+    else if (strcmp(key_buffer, "ls") == 0) {
+		extern vfs_node_t ramdisk_nodes[];
+		extern int node_count;
+
+		terminal_print("Files in Initrd:\n");
+		for (int i = 0; i < node_count; i++) {
+		    terminal_print("- ");
+		    terminal_print(ramdisk_nodes[i].name);
+		    terminal_print(" (");
+		    terminal_print_number(ramdisk_nodes[i].length);
+		    terminal_print(" bytes)\n");
+		}
+	}
+	
+	// === cat ===
+	else if (strncmp(key_buffer, "cat ", 4) == 0) {
+		const char* filename = key_buffer + 4;
+		bool found = false;
+
+		for (int i = 0; i < node_count; i++) {
+		    if (strcmp(ramdisk_nodes[i].name, filename) == 0) {
+		        char* file_data = (char*)ramdisk_nodes[i].ptr;
+		        
+		        for (uint32_t j = 0; j < ramdisk_nodes[i].length; j++) {
+		            //creating a tiny string to print char by char
+		            char buf[2] = {file_data[j], '\0'};
+		            terminal_print(buf);
+		        }
+		        terminal_print("\n");
+		        found = true;
+		        break;
+		    }
+		}
+		if (!found) {
+		    terminal_print("File not found.\n");
+		}
+	}
+	else if (strncmp(key_buffer, "peek ", 5) == 0) {
+		char *addr_str = key_buffer + 5;
+		uint32_t addr = hex_to_int(addr_str);
+		uint8_t *ptr = (uint8_t*)addr;
+
+		terminal_print("Raw Bytes at ");
+		terminal_print(addr_str);
+		terminal_print(": ");
+
+		// Print the first 8 bytes as simple hex indicators
+		for (int i = 0; i < 8; i++) {
+		    if (ptr[i] == 0) {
+		        terminal_print("00 ");
+		    } else {
+		        terminal_print("!! "); 
+		    }
+		}
+		terminal_print("\n");
+	}
+	else if (strncmp(key_buffer, "scan ", 5) == 0) {
+		char *addr_str = key_buffer + 5;
+		uint32_t start_addr = atoi(addr_str); // atoi for decimal addresses
+		
+		terminal_print("Scanning starting at: ");
+		terminal_print_number(start_addr);
+		terminal_print("\n");
+
+		for (uint32_t i = 0; i < 4096; i++) {
+		    char* ptr = (char*)(start_addr + i);
+		    if (ptr[0] == 'u' && ptr[1] == 's' && ptr[2] == 't' && ptr[3] == 'a' && ptr[4] == 'r') {
+		        terminal_print("Found magic at offset: ");
+		        terminal_print_number(i);
+		        terminal_print("\n");
+		    }
+		}
+	}
+	else {
         terminal_print("Unknown command: ");
         terminal_print(key_buffer);
         terminal_print("\n");

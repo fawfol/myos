@@ -1,9 +1,5 @@
 #include "memory.h"
 
-//start heap at 2 Megabyte mark in physical RAM
-//safely bypasses kernel code and vga text buffer
-//define HEAP_START 0x00200000
-//define HEAP_SIZE  0x00200000 //for OS 2MB of dynamic memory
 
 //metadata header attached to every block of memory
 typedef struct memory_block {
@@ -14,15 +10,7 @@ typedef struct memory_block {
 
 
 memory_block_t* heap_head;
-//pointer to the very beginning of our Heap
-//memory_block_t* heap_head = (memory_block_t*) HEAP_START;
 
-/*Void init_dynamic_memory() {
-    //when OS boots the entire 2MB heap is just one massive free block
-    heap_head->size = HEAP_SIZE - sizeof(memory_block_t);
-    heap_head->is_free = true;
-    heap_head->next = NULL;
-}*/
 void init_dynamic_memory(uint32_t start_addr, uint32_t size) {
     heap_head = (memory_block_t*) start_addr;
     heap_head->size = size - sizeof(memory_block_t);
@@ -78,7 +66,6 @@ void* k_memset(void* dest, uint8_t val, uint32_t count) {
     return dest;
 }
 
-// Rename to k_memset16
 void* k_memset16(void* dest, uint16_t val, uint32_t count) {
     uint16_t* temp = (uint16_t*)dest;
     for(; count != 0; count--) {
@@ -99,7 +86,7 @@ void* calloc(uint32_t count, uint32_t size) {
     return ptr;
 }
 
-// Calculate heap usage statistics
+//calculate heap usage statistics
 void get_mem_stats(uint32_t* used, uint32_t* free_mem) {
     uint32_t total_used = 0;
     uint32_t total_free = 0;

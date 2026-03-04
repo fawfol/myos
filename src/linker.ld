@@ -1,7 +1,8 @@
 ENTRY(_start)
 SECTIONS
 {
-    . = 1M;
+    . = 2M; 
+
     .text : { *(.text) }
     .data : { *(.data) }
     .bss  : { *(.bss)  }

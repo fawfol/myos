@@ -1,33 +1,34 @@
 #include "paging.h"
-#include "shell.h"
-//each table is 4096 bytes. 32 tables = 128KB of RAM.
-uint32_t page_directory[1024] __attribute__((aligned(4096)));
-uint32_t page_tables[32][1024] __attribute__((aligned(4096))); 
+
+//move tables far away from the action (16MB mark)
+uint32_t* page_directory = (uint32_t*)0x01000000; 
+uint32_t* page_tables    = (uint32_t*)0x01001000; 
 
 void init_paging() {
-    // 1. clear page dir
+    //clear dir
     for(int i = 0; i < 1024; i++) {
-        page_directory[i] = 0x00000002; //not present Read/Write
+        page_directory[i] = 0x00000002; 
     }
 
-    // 2. identity map the first 128MB
-    //loop thru 32tables
-    for(int t = 0; t < 32; t++) {
-        for(int i = 0; i < 1024; i++) {
-            //calculate the physical address for this specific page
-            uint32_t address = (t * 1024 + i) * 4096;
-            page_tables[t][i] = address | 3; //present Read/Write
-        }
-        //put this table into dir
-        page_directory[t] = ((uint32_t)page_tables[t]) | 3;
+    //identity map 256MB
+    for(int i = 0; i < 65536; i++) {
+        // Map Virtual (i*4096) to Physical (i*4096)
+        page_tables[i] = (uint32_t)(i * 4096) | 3; 
     }
 
-    // 3. enable paging 
+    //link dir to tables
+    for(int t = 0; t < 64; t++) {
+        //tables are spaced 4096 bytes apart in physical RAM
+        uint32_t phys_table_addr = 0x01001000 + (t * 4096);
+        page_directory[t] = phys_table_addr | 3;
+    }
+
+    //enable pagin(Point CR3 to 16MB)
     asm volatile(
         "mov %0, %%cr3\n\t"
         "mov %%cr0, %%eax\n\t"
         "or $0x80000000, %%eax\n\t"
         "mov %%eax, %%cr0"
-        : : "r"(page_directory) : "eax"
+        : : "r"(0x01000000) : "eax"
     );
 }
