@@ -2,8 +2,8 @@
 
 //start heap at 2 Megabyte mark in physical RAM
 //safely bypasses kernel code and vga text buffer
-#define HEAP_START 0x00200000
-#define HEAP_SIZE  0x00200000 //for OS 2MB of dynamic memory
+//define HEAP_START 0x00200000
+//define HEAP_SIZE  0x00200000 //for OS 2MB of dynamic memory
 
 //metadata header attached to every block of memory
 typedef struct memory_block {
@@ -12,12 +12,20 @@ typedef struct memory_block {
     struct memory_block* next;
 } memory_block_t;
 
-//pointer to the very beginning of our Heap
-memory_block_t* heap_head = (memory_block_t*) HEAP_START;
 
-void init_dynamic_memory() {
+memory_block_t* heap_head;
+//pointer to the very beginning of our Heap
+//memory_block_t* heap_head = (memory_block_t*) HEAP_START;
+
+/*Void init_dynamic_memory() {
     //when OS boots the entire 2MB heap is just one massive free block
     heap_head->size = HEAP_SIZE - sizeof(memory_block_t);
+    heap_head->is_free = true;
+    heap_head->next = NULL;
+}*/
+void init_dynamic_memory(uint32_t start_addr, uint32_t size) {
+    heap_head = (memory_block_t*) start_addr;
+    heap_head->size = size - sizeof(memory_block_t);
     heap_head->is_free = true;
     heap_head->next = NULL;
 }
