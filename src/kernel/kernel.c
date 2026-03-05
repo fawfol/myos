@@ -15,6 +15,7 @@ void kernel_main(uint32_t mboot_ptr) {
 
     init_gdt();
     init_idt();
+    init_syscalls();
     pic_remap(0x20, 0x28);
     pic_enable_keyboard();
     init_timer(100);

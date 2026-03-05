@@ -37,20 +37,10 @@ void update_cursor(int index) {
 }
 
 // === C LIB HELPERS ===
-int strcmp(const char *s1, const char *s2) {
-    while (*s1 && (*s1 == *s2)) { s1++; s2++; }
-    return *(const unsigned char*)s1 - *(const unsigned char*)s2;
-}
-
-int strncmp(const char *s1, const char *s2, int n) {
-    while (n && *s1 && (*s1 == *s2)) { ++s1; ++s2; --n; }
-    if (n == 0) return 0;
-    return *(const unsigned char *)s1 - *(const unsigned char *)s2;
-}
 
 void terminal_clear() {
     uint16_t blank = (uint16_t) ' ' | (uint16_t) current_color << 8;
-    memset16(terminal_buffer, blank, 2000); 
+    k_memset16(terminal_buffer, blank, 2000);
     terminal_index = 0;
     update_cursor(terminal_index);
 }
@@ -146,6 +136,7 @@ void execute_command() {
         terminal_print("- cat  :  \n");
         terminal_print("- peek  : peek [address_in_hex]\n");
         terminal_print("- scan  : scan memory starting at your module address\n");
+        terminal_print("- syscall_test  : prove your syscall mechanism is ready for a compiler\n");
         
     } 
     else if (strcmp(key_buffer, "clear") == 0) {
@@ -163,7 +154,7 @@ void execute_command() {
             current_color = 0x02; 
             terminal_clear();     
         } else {
-            terminal_print("Unknown color. Try: red, green, blue, white, matrix\n");
+            terminal_print("Unknown color. Do: red, green, blue, white, matrix\n");
         }
     } 
     else if (strcmp(key_buffer, "testcrash") == 0) {
@@ -380,6 +371,18 @@ void execute_command() {
 		        terminal_print("\n");
 		    }
 		}
+	}
+	else if (strcmp(key_buffer, "syscall_test") == 0) {
+		terminal_print("Testing KalsangOS Syscall System...\n");
+		
+		char* test_msg = "SUCCESS: Hello from inside Syscall 0x80 \n";
+
+		asm volatile (
+		    "mov $1, %%eax\n\t"  //syscall 1 (SYS_PRINT)
+		    "mov %0, %%ebx\n\t"  //argument: ptr to the string
+		    "int $0x80"          //trigger intrp
+		    : : "r"(test_msg) : "eax", "ebx"
+		);
 	}
 	else {
         terminal_print("Unknown command: ");

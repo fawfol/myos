@@ -1,6 +1,7 @@
 #include "vfs.h"
 #include "memory.h"
 #include "shell.h"
+#include "memory.h"
 
 vfs_node_t *vfs_root = 0;
 vfs_node_t ramdisk_nodes[32];
@@ -51,7 +52,7 @@ void init_ramdisk(uint32_t location) {
     while (node_count < 32) {
         tar_header_t *header = (tar_header_t*)address;
 
-        //check for 'ustar' magic to confirm this is a valid TAR header
+        //check for ustar magic to confirm this is a valid TAR header
         //some tar creators put "ustar " (with a space) or "ustar\0"
         if (header->magic[0] != 'u' || header->magic[1] != 's') {
             break; 
@@ -75,4 +76,18 @@ void init_ramdisk(uint32_t location) {
         address += ((node->length + 511) & ~511) + 512;
         node_count++;
     }
+}
+
+vfs_node_t* vfs_find(vfs_node_t* root, char* name) {
+    //assume ramdisk_nodes is global array from earlier
+    (void)root; //do nithing empty for now    
+    extern vfs_node_t ramdisk_nodes[32];
+    extern int node_count;
+
+    for (int i = 0; i < node_count; i++) {
+        if (strcmp(ramdisk_nodes[i].name, name) == 0) {
+            return &ramdisk_nodes[i];
+        }
+    }
+    return NULL;
 }

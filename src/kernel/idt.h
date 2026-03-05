@@ -14,3 +14,4 @@ struct idt_ptr_struct {
 } __attribute__((packed));
 
 void init_idt();
+void init_syscalls();

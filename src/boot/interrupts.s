@@ -1,49 +1,78 @@
 .section .text
-.extern isr_handler      /*C function call */
+.extern isr_handler
+.extern syscall_dispatcher
 
-.global isr33            /*shoudlbe visible to idt.c*/
+.global isr33
 .global isr32
+.global syscall_handler 
 
-/*stub for the keyboard int 33*/
+/* keyboard ISR */
 isr33:
-    cli                  /*disable interrupts while we handle this one */
-    push $0              /*push dummy error code to keep the stack aligned*/
-    push $33             /*push  int number so C knows who called*/
+    cli
+    push $0
+    push $33
     jmp isr_common_stub
 
+/* timer ISR */
 isr32:
-    cli                  
-    push $0              
-    push $32             
+    cli
+    push $0
+    push $32
     jmp isr_common_stub
 
-/*common handler that saves the CPU state */
+/* common handler */
 isr_common_stub:
-    pusha                /*pushes edi,esi,ebp,esp,ebx,edx,ecx,eax */
-    
-    mov %ds, %ax         /*lower 16-bits of eax = ds. */
-    push %eax            /*save ds descriptor */
+    pusha
+    mov %ds, %ax
+    push %eax
 
-    mov $0x10, %ax       /*load the kernel data segment descriptor from gdt */
+    mov $0x10, %ax
     mov %ax, %ds
     mov %ax, %es
     mov %ax, %fs
     mov %ax, %gs
 
-    call isr_handler     /*call C code*/
+    call isr_handler
 
-    pop %eax             /*relaod original ds descpt */
+    pop %eax
     mov %ax, %ds
     mov %ax, %es
     mov %ax, %fs
     mov %ax, %gs
     
-    popa                 /*pops edi,esi,ebp back into their registers*/
-    add $8, %esp         /*cleans up the pushed error code and isr num*/
-    sti                  /*re enable int*/
-    iret                 /*pops CS, EIP, EFLAGS, SS, and ESP automatically*/
+    popa
+    add $8, %esp
+    sti
+    iret
 
-/*exceptions that dont push error codes (we push a dummy 0)*/
+/* --- SYSCALL HANDLER --- */
+syscall_handler:
+    pusha                /*save all gp reg*/
+    
+    push %ds             /*save ds */
+    push %es
+    push %fs
+    push %gs
+
+    mov $0x10, %ax       /*load ernel ds (0x10) */
+    mov %ax, %ds
+    mov %ax, %es
+    mov %ax, %fs
+    mov %ax, %gs
+
+    push %esp            /*push pointer to registers for C dispatcher */
+    call syscall_dispatcher
+    add $4, %esp         /*clean up the pushed ESP */
+
+    pop %gs              /*restore segments */
+    pop %fs
+    pop %es
+    pop %ds
+
+    popa                 /*retore all registers */
+    iret                 /*return to user/shell */
+
+/*exceptions Macros */
 .macro ISR_NOERRCODE num
 .global isr\num
 isr\num:
@@ -53,7 +82,6 @@ isr\num:
     jmp isr_common_stub
 .endm
 
-/* Exceptions that DO push error codes */
 .macro ISR_ERRCODE num
 .global isr\num
 isr\num:
@@ -62,7 +90,7 @@ isr\num:
     jmp isr_common_stub
 .endm
 
-/*exceptions */
+/*registered exceptions*/
 ISR_NOERRCODE 0
 ISR_NOERRCODE 1
 ISR_NOERRCODE 2

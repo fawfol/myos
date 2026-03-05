@@ -11,6 +11,25 @@ typedef struct memory_block {
 
 memory_block_t* heap_head;
 
+//string util
+int strcmp(const char *s1, const char *s2) {
+    while (*s1 && (*s1 == *s2)) {
+        s1++;
+        s2++;
+    }
+    return *(unsigned char *)s1 - *(unsigned char *)s2;
+}
+
+int strncmp(const char *s1, const char *s2, uint32_t n) {
+    while (n && *s1 && (*s1 == *s2)) {
+        ++s1;
+        ++s2;
+        --n;
+    }
+    if (n == 0) return 0;
+    return *(const unsigned char *)s1 - *(const unsigned char *)s2;
+}
+
 void init_dynamic_memory(uint32_t start_addr, uint32_t size) {
     heap_head = (memory_block_t*) start_addr;
     heap_head->size = size - sizeof(memory_block_t);
@@ -57,33 +76,35 @@ void free(void* ptr) {
     block->is_free = true;
 }
 
-//fill a block of memory with a specific value
-void* k_memset(void* dest, uint8_t val, uint32_t count) {
+// Standard memset
+void* memset(void* dest, int val, uint32_t count) {
     uint8_t* temp = (uint8_t*)dest;
     for (; count != 0; count--) {
-        *temp++ = val;
+        *temp++ = (uint8_t)val;
     }
     return dest;
 }
 
-void* k_memset16(void* dest, uint16_t val, uint32_t count) {
-    uint16_t* temp = (uint16_t*)dest;
-    for(; count != 0; count--) {
-        *temp++ = val;
-    }
-    return dest;
-}
-
-//allocate memory AND wipe it to 0 ..... for arrays and page directories
+// Fixed calloc to use the new name
 void* calloc(uint32_t count, uint32_t size) {
     uint32_t total_size = count * size;
     void* ptr = malloc(total_size);
     
     if (ptr != NULL) {
-        k_memset(ptr, 0, total_size); 
+        memset(ptr, 0, total_size); // Changed from k_memset to memset
     }
     
     return ptr;
+}
+
+// Standard memcpy
+void* memcpy(void* dest, const void* src, uint32_t count) {
+    const uint8_t* sp = (const uint8_t*)src;
+    uint8_t* dp = (uint8_t*)dest;
+    for (; count != 0; count--) {
+        *dp++ = *sp++;
+    }
+    return dest;
 }
 
 //calculate heap usage statistics
@@ -104,4 +125,13 @@ void get_mem_stats(uint32_t* used, uint32_t* free_mem) {
     
     *used = total_used;
     *free_mem = total_free;
+}
+
+//provides the 16-bit fill logic for the VGA buffer
+void* k_memset16(void* dest, uint16_t val, uint32_t count) {
+    uint16_t* temp = (uint16_t*)dest;
+    for(; count != 0; count--) {
+        *temp++ = val;
+    }
+    return dest;
 }

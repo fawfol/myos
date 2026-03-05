@@ -1,0 +1,160 @@
+KalsangOS: An Adaptable OS for Personalization
+Statement about the Problem
+
+In the modern computing landscape, individuals often find themselves operating within closed, proprietary systems that leave very little room for profound customization. Conventional Operating Systems are highly complex, rendering it nearly impossible for users to add low-level features or alter core system behaviors without encountering substantial barriers or jeopardizing system stability. This results in an environment where users must adapt their needs to fit the OS, rather than having an OS capable of adapting to them.
+Why is this particular topic chosen?
+
+The inception of this project originates from the desire to create a "Self-Hosting OS." The objective is to develop a modular foundation that empowers users with true ownership over their computing environment. By building an OS from scratch—starting with bare-metal interactions—it presents a unique opportunity to comprehend the exact flow of data and execution. This level of understanding establishes a framework where an OS is not merely a product but an evolving tool that can be continuously tailored for highly specific personal workflows and potentially expanded for broader public utility.
+Objective and Scope of the Project
+
+The primary objective is to engineer KalsangOS, a 32-bit x86 modular operating system crafted to ensure stability while maintaining an open architecture for future development.
+
+Scope and Final Outcomes:
+
+    Bare-Metal Execution: Boot independently using GRUB, completely bypassing any underlying host system.
+
+    Hardware Interaction: Establish direct communication with physical components, including the VGA display controller, the PS/2 Keyboard controller, and the CPU Reset registers.
+
+    Core Services: Implement essential OS features, including a Global Descriptor Table (GDT), an Interrupt Descriptor Table (IDT), Programmable Interrupt Controllers (PIC), and a Programmable Interval Timer (PIT).
+
+    Memory Management: Implement Virtual Memory via Paging to protect the kernel and establish a Dynamic Memory Allocator (malloc/free) to support dynamic system operations.
+
+    Interactive Shell: Provide a functional command-line interface capable of parsing user input and executing commands (sysinfo, color, uptime, sleep, echo).
+
+    End User Benefit: Users will possess a transparent, stable system acting as a robust platform for learning OS development and modifying core behaviors.
+
+Methodology
+
+The project follows an iterative, bottom-up methodology characterized by progressive enhancement:
+
+    Phase 1: Bootstrapping. Develop the assembly stubs (boot.s) necessary to transition the CPU into 32-bit Protected Mode and invoke the C kernel.
+
+    Phase 2: CPU Foundation. Initialize the Global Descriptor Table (GDT) and the Interrupt Descriptor Table (IDT) to enable the CPU to manage different execution levels and process hardware signals safely.
+
+    Phase 3: Hardware Drivers. Write C modules to handle Keyboard input (isr.c) and map the Programmable Interval Timer (timer.c) to track system time and uptime.
+
+    Phase 4: Shell Development. Construct an interactive loop (shell.c) to parse strings, execute commands, and visually represent data via the VGA text buffer.
+
+    Phase 5: Memory Architecture. Activate Virtual Memory (paging.c) to prevent unauthorized memory access and create a Heap Manager (memory.c) to provide dynamic RAM allocation.
+
+    Phase 6: Integration and Testing. Utilize a custom build script to compile the individual modules (.o), link them into a single binary (.bin), and forge a bootable ISO capable of running on physical x86 hardware (e.g., Dell Vostro).
+
+Hardware & Software to be Used
+
+Software Requirements:
+
+    Operating System (Host): Kali Linux (or similar Debian-based distribution).
+
+    Compiler: GCC (GNU Compiler Collection) with i686-elf cross-compilation capabilities (or standard GCC with -m32 flags).
+
+    Assembler: GNU Assembler (NASM or as).
+
+    Linker: GNU Linker (ld).
+
+    Bootloader Tooling: GRUB (specifically grub-mkrescue and xorriso) to generate bootable ISOs.
+
+    Virtualization: QEMU (for rapid testing without rebooting).
+
+Hardware Requirements:
+
+    Target Machine: Dell Vostro 1014 (featuring an Intel Core 2 Duo) or an equivalent x86-based system capable of booting from a USB.
+
+    Media: USB Flash Drive (for physical deployment via the dd command).
+
+What Contribution Would the Project Make?
+
+KalsangOS aims to demystify operating system development. By providing a clear, modular codebase, it serves as a practical blueprint for developers aiming to comprehend hardware-software interfaces. Its design philosophy directly addresses the barrier to entry in OS modification, contributing to an open-source ethos where the operating system is a malleable utility rather than a rigid black box.
+Schedule of the Project
+
+(Note: A Gantt/PERT chart should be generated here visually or using a tool, but here is the textual representation of the timeline).
+
+    Week 1: Project setup, Bootloader (GRUB) configuration, and establishing the bare-bones C Kernel.
+
+    Week 2: GDT and IDT implementation; establishing CPU state protection.
+
+    Week 3: Keyboard driver and PIC remap; capturing user input.
+
+    Week 4: Basic Shell construction and command parsing.
+
+    Week 5: PIT setup; implementing system time (uptime, sleep).
+
+    Week 6: Memory Management I; Paging setup and virtual memory alignment.
+
+    Week 7: Memory Management II; Heap Allocator (malloc/free) and integration with the shell.
+
+    Week 8: Physical hardware testing, debugging (handling interrupt deadlocks), and final ISO forging.
+
+Conclusion
+
+KalsangOS represents a significant achievement in low-level system design. Moving beyond theoretical concepts, it is a functional, bootable operating system built from the ground up. The system stands out due to its modular architecture and direct hardware integration, from custom VGA color mapping to CPU-level reboot commands. The successful implementation of Memory Paging and a Dynamic Heap Allocator solidifies KalsangOS as a stable platform, capable of supporting future development into a comprehensive, self-hosting environment.
+References / Bibliography
+
+(These should be filled in with the exact resources you are using).
+
+    Books:
+
+        Operating Systems: Design and Implementation by Andrew S. Tanenbaum.
+
+        Modern Operating Systems by Andrew S. Tanenbaum.
+
+    Website Links:
+
+        OSDev.org Wiki: https://wiki.osdev.org/ (Specifically sections on Bare Bones, Paging, and Memory Allocation).
+
+        Intel® 64 and IA-32 Architectures Software Developer Manuals: https://software.intel.com/content/www/us/en/develop/articles/intel-sdm.html
+
+    Research Papers:
+
+        (Include relevant papers if applicable to your academic curriculum).
+
+
+ Gemini said
+
+This is a perfect time to take a step back and document the architecture of KalsangOS. For a project synopsis, you need to highlight how you moved from a basic "Hello World" kernel to a memory-managed, file-aware system capable of Self-Hosting.
+
+Here is the structured summary of your milestones:
+## Project Title: KalsangOS
+
+Objective: To develop a 32-bit, x86 multitasking operating system capable of self-hosting (compiling its own source code).
+### Milestone 1: The Bootstrapping Phase
+
+We established the core link between the hardware and the software using the Multiboot standard.
+
+    Bootloader (GRUB): Configured to load the kernel binary (myos.bin) and initial RAM disk (initrd.tar) into physical memory.
+
+    GDT & IDT: Implemented the Global Descriptor Table and Interrupt Descriptor Table to handle CPU segmentation and hardware interrupts (Keyboard/Timer).
+
+    VGA Driver: Created a terminal driver to provide visual feedback during the boot sequence.
+
+### Milestone 2: Advanced Memory Management
+
+This was the most critical phase for system stability.
+
+    The 2MB Linker Shift: Moved the kernel load address from 1MB to 2MB to prevent collisions with GRUB modules and the BIOS "Reserved Zone."
+
+    Identity Paging (256MB): Implemented a Page Directory and Page Tables to map the first 256MB of RAM.
+
+    Table Isolation: Moved Page Tables to a "Sacred Zone" at 16MB (0x01000000) to prevent the kernel or heap from overwriting the CPU's memory map.
+
+    Dynamic Heap: Initialized a kernel-level memory allocator starting at 8MB to allow for malloc-style memory requests.
+
+### Milestone 3: The Virtual File System (VFS) & Initrd
+
+We enabled the OS to "see" and "read" its own storage.
+
+    TAR Integration: Developed a parser for the POSIX USTAR format.
+
+    Module Detection: Used the Multiboot Information Structure to locate the RAMDisk provided by GRUB at boot time.
+
+    The Paging Breakthrough: Fixed a critical "Ghosting" bug where Paging was blinding the CPU to the RAMDisk. By ensuring strict Identity Mapping, we enabled the ls command to see files in physical RAM.
+
+### Summary Table: Memory Layout of KalsangOS
+Address Range	Component	Purpose
+0x00000000 - 0x000FFFFF	Lower Memory	Reserved for BIOS and Hardware
+0x00100000 (~1MB)	RAMDisk (Initrd)	Storage for system files and compiler source
+0x00200000 (2MB)	Kernel Executable	The core code of KalsangOS
+0x00800000 (8MB)	Dynamic Heap	Memory for shell commands and drivers
+0x01000000 (16MB)	Page Tables	The master map for all memory translations
+### Current Status
+
+KalsangOS is now "Environment Aware." It can communicate with the user via a shell, manage 256MB of RAM, and access a read-only filesystem. This provides the stable foundation required to load a compiler and move toward Self-Hosting.
