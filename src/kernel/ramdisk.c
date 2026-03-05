@@ -78,24 +78,51 @@ void init_ramdisk(uint32_t location) {
     }
 }
 
-void vfs_create(char* name, char* data, uint32_t size) {
+/*void vfs_create(char* name, char* data, uint32_t size) {
     if (node_count >= 32) return; // RAMDisk full
 
     vfs_node_t* new_node = &ramdisk_nodes[node_count];
     
-    // 1. Set metadata
+    // 1set metadata
     memset(new_node->name, 0, 100);
     memcpy(new_node->name, name, strlen(name));
     new_node->length = size;
     new_node->flags = VFS_FILE;
 
-    // 2. Allocate real space on the heap for the file data
+    // 2allocate real space on the heap for the file data
     new_node->ptr = (vfs_node_t*)malloc(size);
     
-    // 3. Copy the data from the user program into the new kernel buffer
+    // 3copy the data from the user program into the new kernel buffer
     memcpy((void*)new_node->ptr, data, size);
 
     node_count++;
+}*/
+void vfs_create(char* name, char* data, uint32_t size) {
+    if (node_count >= 32) {
+        terminal_print("Error: RAMDisk node limit reached.\n");
+        return;
+    }
+
+    vfs_node_t* new_node = &ramdisk_nodes[node_count];
+    
+    //initialize and copy the name
+    memset(new_node->name, 0, 100);
+    for(int i = 0; i < 99 && name[i] != '\0'; i++) {
+        new_node->name[i] = name[i];
+    }
+
+    new_node->length = size;
+    new_node->flags = VFS_FILE;
+
+    //allocate memory from the heap we initialized in kernel_main
+    new_node->ptr = (vfs_node_t*)malloc(size);
+    
+    if (new_node->ptr != NULL) {
+        memcpy((void*)new_node->ptr, data, size);
+        node_count++;
+    } else {
+        terminal_print("Error: Failed to allocate memory for new file\n");
+    }
 }
 
 vfs_node_t* vfs_find(vfs_node_t* root, char* name) {
