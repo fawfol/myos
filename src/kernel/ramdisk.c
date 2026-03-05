@@ -78,6 +78,26 @@ void init_ramdisk(uint32_t location) {
     }
 }
 
+void vfs_create(char* name, char* data, uint32_t size) {
+    if (node_count >= 32) return; // RAMDisk full
+
+    vfs_node_t* new_node = &ramdisk_nodes[node_count];
+    
+    // 1. Set metadata
+    memset(new_node->name, 0, 100);
+    memcpy(new_node->name, name, strlen(name));
+    new_node->length = size;
+    new_node->flags = VFS_FILE;
+
+    // 2. Allocate real space on the heap for the file data
+    new_node->ptr = (vfs_node_t*)malloc(size);
+    
+    // 3. Copy the data from the user program into the new kernel buffer
+    memcpy((void*)new_node->ptr, data, size);
+
+    node_count++;
+}
+
 vfs_node_t* vfs_find(vfs_node_t* root, char* name) {
     //assume ramdisk_nodes is global array from earlier
     (void)root; //do nithing empty for now    

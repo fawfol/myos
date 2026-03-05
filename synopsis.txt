@@ -158,3 +158,11 @@ Address Range	Component	Purpose
 ### Current Status
 
 KalsangOS is now "Environment Aware." It can communicate with the user via a shell, manage 256MB of RAM, and access a read-only filesystem. This provides the stable foundation required to load a compiler and move toward Self-Hosting.
+
+
+=========================================
+User Mode	Compiler / Apps	Logic, Parsing, Code Generation
+Interface	Syscall (int 0x80)	Safely requesting Kernel services
+Kernel Mode	VFS / RAMDisk	Finding and Reading source files
+Hardware	x86 CPU / RAM	Executing the raw machine instructions
+========================================

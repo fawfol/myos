@@ -1,1 +1,1 @@
-KALSANG_OS_DISK_V1
+KALSANG_OS_DISK_V1: Self-Hosting test file.

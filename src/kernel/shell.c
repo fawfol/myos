@@ -137,6 +137,8 @@ void execute_command() {
         terminal_print("- peek  : peek [address_in_hex]\n");
         terminal_print("- scan  : scan memory starting at your module address\n");
         terminal_print("- syscall_test  : prove your syscall mechanism is ready for a compiler\n");
+        terminal_print("- run  : search for a binary file and execute it\n");
+        terminal_print("-exec_test  : command allocates memory writes raw machine code into it then jumps into it simulates kernel loading a compiler\n");
         
     } 
     else if (strcmp(key_buffer, "clear") == 0) {
@@ -384,6 +386,63 @@ void execute_command() {
 		    : : "r"(test_msg) : "eax", "ebx"
 		);
 	}
+		// === compliler and run === /
+	else if (strncmp(key_buffer, "run ", 4) == 0) {
+		char* filename = key_buffer + 4;
+		vfs_node_t* file = vfs_find(vfs_root, filename);
+
+		if (file) {
+		    terminal_print("Loading execution point: ");
+		    terminal_print_number((uint32_t)file->ptr);
+		    terminal_print("\n");
+
+		    //create a function pointer tofile location in RAM
+		    typedef void (*entry_point)();
+		    entry_point start = (entry_point)file->ptr;
+
+		    //jump
+		    start();
+		    
+		    terminal_print("\nExecution finished.\n");
+		} else {
+		    terminal_print("Error: Executable not found.\n");
+		}
+	}
+	
+	else if (strcmp(key_buffer, "exec_test") == 0) {
+    terminal_print("Allocating User Space...\n");
+
+    //ask our new Memory Manager for 64 bytes
+    unsigned char* code_space = (unsigned char*) malloc(64);
+    char* test_msg = "Hello from the injected binary!\n";
+
+    if (code_space != NULL) {
+        // inject bin code
+        code_space[0] = 0xB8; code_space[1] = 0x01; //mov eax, 1
+        code_space[2] = 0x00; code_space[3] = 0x00; 
+        code_space[4] = 0x00;
+        
+        code_space[5] = 0xBB; //mov ebx, (address)
+        uint32_t msg_ptr = (uint32_t)test_msg;
+        memcpy(&code_space[6], &msg_ptr, 4);
+
+        code_space[10] = 0xCD; code_space[11] = 0x80; //int 0x80
+        code_space[12] = 0xC3;                       //ret
+
+        terminal_print("Jumping to User Code at: ");
+        terminal_print_number((uint32_t)code_space);
+        terminal_print("\n");
+
+        //leap
+        typedef void (*user_code_t)();
+        user_code_t run_me = (user_code_t)code_space;
+        run_me();
+        //clean up
+        free(code_space);
+        terminal_print("Returned safely to Kernel.\n");
+    }
+}
+
 	else {
         terminal_print("Unknown command: ");
         terminal_print(key_buffer);
