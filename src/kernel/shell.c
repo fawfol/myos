@@ -144,8 +144,6 @@ void execute_command() {
     } 
     else if (strcmp(key_buffer, "clear") == 0) {
         terminal_clear();
-        terminal_print("KalsangOS> ");
-        return; 
     } 
     else if (strncmp(key_buffer, "color ", 6) == 0) {
         const char* arg = key_buffer + 6; 
