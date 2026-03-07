@@ -5,6 +5,34 @@
 #include "memory.h"
 #include "vfs.h"
 
+// === === === === === === === === === ===
+typedef void (*shell_func_t)(char* args);
+
+typedef struct shell_cmd {
+    char name[32];
+    shell_func_t function;
+    struct shell_cmd* next;
+} shell_cmd_t;
+
+// The head of our dynamic command list
+shell_cmd_t* cmd_list = NULL;
+
+//dynamicallly live addit of command 
+void add_command(char* name, shell_func_t func) {
+    shell_cmd_t* new_cmd = (shell_cmd_t*)malloc(sizeof(shell_cmd_t));
+    if (!new_cmd) return;
+
+    memset(new_cmd->name, 0, 32);
+    memcpy(new_cmd->name, name, 31); // Ensure null termination
+    new_cmd->function = func;
+    
+    // Link it to the start of the list
+    new_cmd->next = cmd_list;
+    cmd_list = new_cmd;
+}
+
+// === === === === === === === === === ===
+
 uint16_t* terminal_buffer = (uint16_t*) 0xB8000;
 uint32_t terminal_index = 0;
 uint8_t current_color = 0x0F; 
@@ -12,6 +40,7 @@ uint8_t current_color = 0x0F;
 #define BUFFER_SIZE 256
 char key_buffer[BUFFER_SIZE];
 int key_index = 0;
+
 
 //force a Division by Zero (Exception 0)
 void trigger_divide_by_zero() {
@@ -115,12 +144,25 @@ uint32_t atoi(char *str) {
 // === SHELL LOGIC ===
 void execute_command() {
     terminal_print("\n");
-    key_buffer[key_index] = '\0'; 
+    key_buffer[key_index] = '\0';
 
     if (key_index == 0) {
-        //empty enter press
-    } 
-    else if (strcmp(key_buffer, "help") == 0) {
+        terminal_print("KalsangOS> ");
+        return;
+    }
+
+    // 1. Search for dynamic commands first
+    shell_cmd_t* current = cmd_list;
+    while (current != NULL) {
+        if (strcmp(key_buffer, current->name) == 0) {
+            current->function(NULL); // Execute the live-added code
+            goto done;
+        }
+        current = current->next;
+    }
+
+    //fallback to hard-coded essentials
+    if (strcmp(key_buffer, "help") == 0) {
         terminal_print("KalsangOS Commands: \n");
         terminal_print("- help    : Shows this menu\n");
         terminal_print("- clear   : Clears the screen\n");
@@ -455,15 +497,9 @@ void execute_command() {
 		terminal_print("Kernel: File 'output.bin' created in RAMDisk\n");
 		terminal_print("Type 'ls' to verify\n");
 	}
-	else {
-        terminal_print("Unknown command: ");
-        terminal_print(key_buffer);
-        terminal_print("\n");
-    }
 
+done:
     key_index = 0;
-    for(int i = 0; i < BUFFER_SIZE; i++) key_buffer[i] = 0;
-    
     terminal_print("KalsangOS> ");
 }
 
