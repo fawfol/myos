@@ -12,6 +12,7 @@ void* k_memset16(void* dest, uint16_t val, uint32_t count);
 
 int strcmp(const char *s1, const char *s2);
 int strncmp(const char *s1, const char *s2, uint32_t n);
+uint32_t strlen(const char* s);
 
 //heap functions
 void init_dynamic_memory(uint32_t start_addr, uint32_t size);

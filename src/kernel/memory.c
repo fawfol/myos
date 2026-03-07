@@ -30,6 +30,12 @@ int strncmp(const char *s1, const char *s2, uint32_t n) {
     return *(const unsigned char *)s1 - *(const unsigned char *)s2;
 }
 
+uint32_t strlen(const char* s) {
+    uint32_t len = 0;
+    while (s[len]) len++;
+    return len;
+}
+
 void init_dynamic_memory(uint32_t start_addr, uint32_t size) {
     heap_head = (memory_block_t*) start_addr;
     heap_head->size = size - sizeof(memory_block_t);

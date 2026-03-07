@@ -5,6 +5,20 @@
 #include "memory.h"
 #include "vfs.h"
 
+void shell_cmd_edit(char* filename);
+extern char keyboard_get_last_char();
+volatile bool enter_pressed = false;
+
+extern volatile bool char_available;
+extern volatile char last_char;
+extern volatile bool shell_is_blocking;
+
+void execute_command();
+void run_script(char* filename);
+
+static char line_buffer[256];
+
+
 // === === === === === === === === === ===
 typedef void (*shell_func_t)(char* args);
 
@@ -14,7 +28,7 @@ typedef struct shell_cmd {
     struct shell_cmd* next;
 } shell_cmd_t;
 
-// The head of our dynamic command list
+//the head of our dynamic command list
 shell_cmd_t* cmd_list = NULL;
 
 //dynamicallly live addit of command 
@@ -141,6 +155,72 @@ uint32_t atoi(char *str) {
     return res;
 }
 
+void run_script(char* filename) {
+    // 1.find the script in the VFS
+    vfs_node_t* file = vfs_find(vfs_root, filename);
+    
+    if (!file) {
+        terminal_print("Error: Script file not found in RAMDisk.\n");
+        return;
+    }
+
+    terminal_print("--- Executing Script: ");
+    terminal_print(filename);
+    terminal_print(" ---\n");
+
+    char* data = (char*)file->ptr;
+    char line_buffer[256];
+    int line_index = 0;
+
+    // 2.loop through every byte of the file
+    for (uint32_t i = 0; i < file->length; i++) {
+        char c = data[i];
+        //if we hit a newline or the end of the file, execute the line!
+        if (c == '\n' || i == file->length - 1) {
+            //catch the last character if the file doesnt end with a newline
+            if (c != '\n' && c != '\r') {
+                line_buffer[line_index++] = c;
+            }
+            line_buffer[line_index] = '\0'; //cap off the string
+            //ignore empty lines
+            if (line_index > 0) {
+                //hijack the main shells buffer
+                memcpy(key_buffer, line_buffer, line_index + 1);
+                key_index = line_index;
+                //print what command we are running (Echo)
+                terminal_print("> ");
+                terminal_print(key_buffer);
+                //tricks OS into running it
+                execute_command(); 
+            }
+            line_index = 0; 
+        } 
+        //ignore carriage returns from Windows text formats
+        else if (c != '\r') {
+            if (line_index < 255) {
+                line_buffer[line_index++] = c;
+            }
+        }
+    }
+    terminal_print("--- Script Finished ---\n");
+}
+
+uint8_t hex_pair_to_byte(char h, char l) {
+    uint8_t byte = 0;
+    
+    // High nibble
+    if (h >= '0' && h <= '9') byte |= (h - '0') << 4;
+    else if (h >= 'a' && h <= 'f') byte |= (h - 'a' + 10) << 4;
+    else if (h >= 'A' && h <= 'F') byte |= (h - 'A' + 10) << 4;
+
+    // Low nibble
+    if (l >= '0' && l <= '9') byte |= (l - '0');
+    else if (l >= 'a' && l <= 'f') byte |= (l - 'a' + 10);
+    else if (l >= 'A' && l <= 'F') byte |= (l - 'A' + 10);
+    
+    return byte;
+}
+
 // === SHELL LOGIC ===
 void execute_command() {
     terminal_print("\n");
@@ -182,6 +262,9 @@ void execute_command() {
         terminal_print("- run  : search for a binary file and execute it\n");
         terminal_print("- exec_test  : command allocates memory writes raw machine code into it then jumps into it simulates kernel loading a compiler\n");
         terminal_print("- write_test  : manually call vfs_create to simulate a program (like a compiler) saving a new output file\n");
+        terminal_print("- edit  : edit a file content or create a new file if file name doesnt exist.\n");
+        terminal_print("- run_script  : executes plain text containing the shell commands\n");
+        terminal_print("- make_bin  : let you type hex codes into the shell and save them as a safe executable binary\n");
         
     } 
     else if (strcmp(key_buffer, "clear") == 0) {
@@ -497,12 +580,54 @@ void execute_command() {
 		terminal_print("Kernel: File 'output.bin' created in RAMDisk\n");
 		terminal_print("Type 'ls' to verify\n");
 	}
+	else if (strncmp(key_buffer, "edit ", 5) == 0) {
+		char* filename = key_buffer + 5;
+		shell_cmd_edit(filename); //editor function 
+	}
+	// === RUN SCRIPT COMMAND ===
+    else if (strncmp(key_buffer, "run_script ", 11) == 0) {
+        char* filename = key_buffer + 11;
+        run_script(filename);
+    }
+    // === MAKE BINARY COMMAND ===
+    else if (strncmp(key_buffer, "make_bin ", 9) == 0) {
+        char* filename = key_buffer + 9;
+        terminal_print("Enter raw hex no spaces:\n> ");
+        char* hex_str = shell_readline(); 
+        uint32_t len = strlen(hex_str);
+        uint32_t byte_count = len / 2;
+        //allocate permanent heap memory for the binary
+        char* bin_data = (char*)malloc(byte_count);
+        //convert text to machine code
+        for (uint32_t i = 0; i < byte_count; i++) {
+            bin_data[i] = hex_pair_to_byte(hex_str[i*2], hex_str[i*2 + 1]);
+        }
+        //save to RAMDisk
+        vfs_node_t* existing_file = vfs_find(vfs_root, filename);
+        if (existing_file != NULL) {
+            existing_file->ptr = (void*)bin_data;
+            existing_file->length = byte_count;
+        } else {
+            vfs_create(filename, bin_data, byte_count);
+        }
+        terminal_print("binary code saved to execute with: run ");
+        terminal_print(filename);
+        terminal_print("\n");
+    }
+	else {
+        terminal_print("Unknown command: ");
+        terminal_print(key_buffer);
+        terminal_print("\n");
+    }
 
 done:
     key_index = 0;
     terminal_print("KalsangOS> ");
 }
 
+//////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+//////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+//////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 void shell_handle_keypress(char c) {
     if (c == '\b') {
         if (key_index > 0) {
@@ -511,8 +636,8 @@ void shell_handle_keypress(char c) {
             terminal_buffer[terminal_index] = (uint16_t) ' ' | (uint16_t) current_color << 8; 
             update_cursor(terminal_index);
         }
-    } else if (c == '\n') {
-        execute_command();
+    } else if (c == '\n') {\
+        enter_pressed = true; 
     } else {
         if (key_index < BUFFER_SIZE - 1) {
             key_buffer[key_index++] = c; 
@@ -521,6 +646,106 @@ void shell_handle_keypress(char c) {
         }
     }
     if (terminal_index >= 2000) terminal_clear();
+}
+/////////////////////////////////////////////////////////////////////////////////////////////////////////
+//// LIVEtemporary heap buffer to store your keystrokes until you decide to commit them to the disk /////
+/////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+void shell_cmd_edit(char* filename) {
+    if (filename == NULL || filename[0] == '\0') {
+        terminal_print("Usage: edit <filename>\n");
+        return;
+    }
+
+    terminal_print("--- KalsangOS Line Editor ---\n");
+    terminal_print("Type your code. Type 'SAVE' on a new line to exit.\n");
+
+    // Allocate 4KB for the new file buffer
+    char* edit_buffer = (char*)malloc(4096);
+    uint32_t total_len = 0;
+    bool editing = true;
+
+    while (editing) {
+        terminal_print("> ");
+        char* line = shell_readline(); 
+
+        if (strcmp(line, "SAVE") == 0) {
+            editing = false;
+        } else {
+            //append line to buffer
+            uint32_t line_len = strlen(line);
+            memcpy(edit_buffer + total_len, line, line_len);
+            total_len += line_len;
+            edit_buffer[total_len++] = '\n';
+        }
+    }
+
+    //write the buffer to the VFS
+    //chck if the file already exists in the RAMDisk
+    vfs_node_t* existing_file = vfs_find(vfs_root, filename);
+
+    if (existing_file != NULL) {
+        //llocate permanent heap memory for the new file data
+        char* permanent_storage = (char*)malloc(total_len);
+        memcpy(permanent_storage, edit_buffer, total_len);
+
+        //overwrite old file pointer and length
+        existing_file->ptr = (void*)permanent_storage;
+        existing_file->length = total_len;
+        
+        terminal_print("Existing file overwritten and saved.\n");
+    } else {
+        //if it doesnt exist create it normally
+        vfs_create(filename, edit_buffer, total_len);
+        terminal_print("New file created and saved to RAMDisk.\n");
+    }
+
+    free(edit_buffer);
+}
+
+char* shell_readline() {
+    shell_is_blocking = true;
+    int index = 0;
+
+    // Zero out the buffer
+    for(int i = 0; i < 256; i++) line_buffer[i] = 0;
+
+    char_available = false; 
+    last_char = 0;
+
+    while (shell_is_blocking) {
+        if (char_available) {
+            char c = last_char;
+            char_available = false;
+
+            if (c == '\n') {
+                line_buffer[index] = '\0';
+                terminal_print("\n"); // Newline is safe for terminal_print
+                shell_is_blocking = false;
+                return line_buffer;
+            } 
+            // === BACKSPACE FIX ===
+            else if (c == '\b' && index > 0) {
+                index--; // Remove from your string
+                
+                // Manually erase from the VGA screen
+                terminal_index--;
+                terminal_buffer[terminal_index] = (uint16_t)' ' | (uint16_t)current_color << 8;
+                update_cursor(terminal_index);
+            } 
+            // === TYPING FIX (Including Capitals) ===
+            else if (index < 254 && c >= 32) {
+                line_buffer[index++] = c; // Add to your string
+                
+                // Write directly to VGA screen bypassing terminal_print
+                terminal_buffer[terminal_index++] = (uint16_t)c | (uint16_t)current_color << 8;
+                update_cursor(terminal_index);
+            }
+        }
+        // Keep the CPU resting slightly so it doesn't overheat
+        asm volatile("pause"); 
+    }
+    return line_buffer;
 }
 
 void init_shell() {
@@ -534,4 +759,11 @@ void init_shell() {
     terminal_print("--------------------------------\n");
     
     terminal_print("KalsangOS> ");
+}
+
+void shell_update() {
+    if (enter_pressed) {
+        execute_command();
+        enter_pressed = false;
+    }
 }

@@ -52,6 +52,9 @@ void kernel_main(uint32_t mboot_ptr) {
 	
     asm volatile("sti");
 
-    while (1);
+	while (1) {
+        shell_update(); // Check if the user pressed enter
+        asm volatile("hlt"); // Rest the CPU until the next interrupt
+    }
 }
 

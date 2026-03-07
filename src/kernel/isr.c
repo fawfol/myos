@@ -4,6 +4,11 @@
 #include "shell.h" 
 #include "timer.h"
 
+volatile char last_char = 0;
+volatile bool char_available = false;
+volatile bool shell_is_blocking = false;
+
+
 char *exception_messages[] = {
     "Division By Zero",
     "Debug",
@@ -62,6 +67,15 @@ const char kbd_us_shift[128] = {
     0,    0,   0,   0,   0,   0,   0,   0,   0   
 };
 
+
+//helper for the shell to "consume" a key
+char keyboard_get_last_char() {
+    if (!char_available) return 0;
+    char c = last_char;
+    char_available = false; //reset the flag
+    return c;
+}
+
 void isr_handler(registers_t regs) {
     if (regs.int_no < 32) {
         terminal_clear();
@@ -89,20 +103,32 @@ void isr_handler(registers_t regs) {
             outb(0x20, 0x20);
         }
         // === KEYBOARD INTERRUPT ===
-        else if (regs.int_no == 33) {
+        // Inside isr.c keyboard section
+		else if (regs.int_no == 33) {
             uint8_t scancode = inb(0x60);
-            outb(0x20, 0x20); 
+            outb(0x20, 0x20); // Send EOI
 
+            // 1. Detect Shift Key Press
             if (scancode == 0x2A || scancode == 0x36) {
                 shift_pressed = true;
             } 
+            // 2. Detect Shift Key Release
             else if (scancode == 0xAA || scancode == 0xB6) {
                 shift_pressed = false;
             } 
+            // 3. Process the actual keydown event
             else if (!(scancode & 0x80)) {
+                // Apply the shift map if shift is currently held
                 char c = shift_pressed ? kbd_us_shift[scancode] : kbd_us[scancode];
+
                 if (c != 0) {
-                    shell_handle_keypress(c);
+                    last_char = c;
+                    char_available = true;
+
+                    // Pass to the main shell ONLY if we aren't in askname/edit
+                    if (!shell_is_blocking) {
+                        shell_handle_keypress(c);
+                    }
                 }
             }
         }

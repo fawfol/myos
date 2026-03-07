@@ -9,4 +9,7 @@ void terminal_print(const char* str);
 void terminal_clear();
 void terminal_print_number(uint32_t num);
 
+char* shell_readline();
+void shell_update();
+
 #endif
