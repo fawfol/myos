@@ -133,26 +133,43 @@ uint32_t string_to_int(const char* str) {
     return res;
 }
 
-uint32_t hex_to_int(char *str) {
+// convert hex string to integer
+uint32_t hex_to_int(char* str) {
     uint32_t val = 0;
     while (*str) {
-        uint8_t byte = *str++;
+        uint8_t byte = *str;
         if (byte >= '0' && byte <= '9') byte = byte - '0';
         else if (byte >= 'a' && byte <= 'f') byte = byte - 'a' + 10;
         else if (byte >= 'A' && byte <= 'F') byte = byte - 'A' + 10;
         else break;
         val = (val << 4) | (byte & 0xF);
+        str++;
     }
     return val;
 }
 
-uint32_t atoi(char *str) {
+//convert decimal string to integer
+uint32_t atoi(char* str) {
     uint32_t res = 0;
-    for (int i = 0; str[i] != '\0'; ++i) {
-        if (str[i] < '0' || str[i] > '9') break;
+    for (int i = 0; str[i] >= '0' && str[i] <= '9'; ++i)
         res = res * 10 + str[i] - '0';
-    }
     return res;
+}
+
+uint8_t hex_pair_to_byte(char h, char l) {
+    uint8_t byte = 0;
+    
+    // High nibble
+    if (h >= '0' && h <= '9') byte |= (h - '0') << 4;
+    else if (h >= 'a' && h <= 'f') byte |= (h - 'a' + 10) << 4;
+    else if (h >= 'A' && h <= 'F') byte |= (h - 'A' + 10) << 4;
+
+    // Low nibble
+    if (l >= '0' && l <= '9') byte |= (l - '0');
+    else if (l >= 'a' && l <= 'f') byte |= (l - 'a' + 10);
+    else if (l >= 'A' && l <= 'F') byte |= (l - 'A' + 10);
+    
+    return byte;
 }
 
 void run_script(char* filename) {
@@ -205,21 +222,6 @@ void run_script(char* filename) {
     terminal_print("--- Script Finished ---\n");
 }
 
-uint8_t hex_pair_to_byte(char h, char l) {
-    uint8_t byte = 0;
-    
-    // High nibble
-    if (h >= '0' && h <= '9') byte |= (h - '0') << 4;
-    else if (h >= 'a' && h <= 'f') byte |= (h - 'a' + 10) << 4;
-    else if (h >= 'A' && h <= 'F') byte |= (h - 'A' + 10) << 4;
-
-    // Low nibble
-    if (l >= '0' && l <= '9') byte |= (l - '0');
-    else if (l >= 'a' && l <= 'f') byte |= (l - 'a' + 10);
-    else if (l >= 'A' && l <= 'F') byte |= (l - 'A' + 10);
-    
-    return byte;
-}
 
 // === SHELL LOGIC ===
 void execute_command() {
@@ -472,14 +474,16 @@ void execute_command() {
 		terminal_print(addr_str);
 		terminal_print(": ");
 
-		// Print the first 8 bytes as simple hex indicators
-		for (int i = 0; i < 8; i++) {
-		    if (ptr[i] == 0) {
-		        terminal_print("00 ");
-		    } else {
-		        terminal_print("!! "); 
-		    }
-		}
+		// Print the first 8 bytes
+		char hex_chars[] = "0123456789ABCDEF";
+        for (int i = 0; i < 8; i++) {
+            uint8_t b = ptr[i];
+            char out[3];
+            out[0] = hex_chars[(b >> 4) & 0x0F];
+            out[1] = hex_chars[b & 0x0F];
+            out[2] = ' ';
+            terminal_print(out); 
+        }
 		terminal_print("\n");
 	}
 	else if (strncmp(key_buffer, "scan ", 5) == 0) {
