@@ -265,7 +265,8 @@ void execute_command() {
         terminal_print("- edit  : edit a file content or create a new file if file name doesnt exist.\n");
         terminal_print("- run_script  : executes plain text containing the shell commands\n");
         terminal_print("- make_bin  : let you type hex codes into the shell and save them as a safe executable binary\n");
-        
+        terminal_print("- ps  : show which programs are currently Sleeping or Running in the background while you type in the shell\n");
+        terminal_print("- kill  : kill process by freeing its memory if process gets stuck -kill process hex-\n");        
     } 
     else if (strcmp(key_buffer, "clear") == 0) {
         terminal_clear();
@@ -614,6 +615,31 @@ void execute_command() {
         terminal_print(filename);
         terminal_print("\n");
     }
+    // === PROCESS STATUS / HEAP MAP ===
+    else if (strcmp(key_buffer, "ps") == 0) {
+        debug_heap_dump();
+    }
+    
+    // === KILL COMMAND (Free memory by address) ===
+    else if (strncmp(key_buffer, "kill ", 5) == 0) {
+        //convert the string address (like 8388638) back into a number
+        char* addr_str = key_buffer + 5;
+        uint32_t addr = 0;
+        
+        //simple string-to-int conversion
+        while (*addr_str >= '0' && *addr_str <= '9') {
+            addr = addr * 10 + (*addr_str - '0');
+            addr_str++;
+        }
+
+        if (addr >= 0x00100000) { // Safety check: don't kill the low kernel memory!
+            free((void*)addr);
+            terminal_print("Memory at address freed.\n");
+        } else {
+            terminal_print("Error: Invalid or protected memory address.\n");
+        }
+    }
+    
 	else {
         terminal_print("Unknown command: ");
         terminal_print(key_buffer);

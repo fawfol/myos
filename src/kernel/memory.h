@@ -19,5 +19,6 @@ void init_dynamic_memory(uint32_t start_addr, uint32_t size);
 void* malloc(uint32_t size);
 void free(void* ptr);
 void get_mem_stats(uint32_t* used, uint32_t* free_mem);
+void debug_heap_dump();
 
 #endif

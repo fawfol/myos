@@ -1,5 +1,5 @@
 #include "memory.h"
-
+#include "shell.h"
 
 //metadata header attached to every block of memory
 typedef struct memory_block {
@@ -140,4 +140,31 @@ void* k_memset16(void* dest, uint16_t val, uint32_t count) {
         *temp++ = val;
     }
     return dest;
+}
+
+void debug_heap_dump() {
+    memory_block_t* current = heap_head;
+    int block_count = 0;
+
+    terminal_print("--- KalsangOS Heap Map ---\n");
+    terminal_print("ADDR\t\tSIZE\tSTATE\n");
+
+    while (current != NULL) {
+        terminal_print_number((uint32_t)current);
+        terminal_print("\t");
+        terminal_print_number(current->size);
+        terminal_print("\t");
+
+        if (current->is_free) {
+            terminal_print("[FREE]\n");
+        } else {
+            terminal_print("[ACTIVE]\n");
+        }
+
+        current = current->next;
+        block_count++;
+    }
+    terminal_print("Total Blocks: ");
+    terminal_print_number(block_count);
+    terminal_print("\n--------------------------\n");
 }
