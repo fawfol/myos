@@ -1,8 +1,9 @@
 #include <stdint.h>
 #include <stdbool.h>
+
+#include "timer.h"
 #include "io.h" 
 #include "shell.h" 
-#include "timer.h"
 
 volatile char last_char = 0;
 volatile bool char_available = false;

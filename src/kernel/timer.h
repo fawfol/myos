@@ -2,7 +2,7 @@
 #define TIMER_H
 #include <stdint.h>
 
-extern uint32_t timer_ticks;
+extern volatile uint32_t timer_ticks;
 
 void init_timer(uint32_t frequency);
 void timer_handler();

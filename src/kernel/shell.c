@@ -268,7 +268,8 @@ void execute_command() {
         terminal_print("- run_script  : executes plain text containing the shell commands\n");
         terminal_print("- make_bin  : let you type hex codes into the shell and save them as a safe executable binary\n");
         terminal_print("- ps  : show which programs are currently Sleeping or Running in the background while you type in the shell\n");
-        terminal_print("- kill  : kill process by freeing its memory if process gets stuck -kill process hex-\n");        
+        terminal_print("- kill  : kill process by freeing its memory if process gets stuck -kill process hex-\n");  
+        terminal_print("- beep  : high pitched kernel ok sound\n");      
     } 
     else if (strcmp(key_buffer, "clear") == 0) {
         terminal_clear();
@@ -341,7 +342,6 @@ void execute_command() {
     } 
     else if (strcmp(key_buffer, "uptime") == 0) {
         //bring in the global timer variable from timer.c
-        extern uint32_t timer_ticks;
         uint32_t seconds = timer_ticks / 100;
         
         terminal_print("KalsangOS Uptime: ");
@@ -643,7 +643,9 @@ void execute_command() {
             terminal_print("Error: Invalid or protected memory address.\n");
         }
     }
-    
+    else if (strncmp(key_buffer, "beep", 4) == 0) {
+        beep(750, 200); 
+    }
 	else {
         terminal_print("Unknown command: ");
         terminal_print(key_buffer);

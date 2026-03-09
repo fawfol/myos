@@ -1,5 +1,7 @@
 #ifndef IO_H
 #define IO_H
+
+#include "timer.h"
 #include <stdint.h>
 
 //send a byte to a hardware port
@@ -18,5 +20,10 @@ static inline uint8_t inb(uint16_t port) {
 static inline void io_wait(void) {
     outb(0x80, 0);
 }
+
+// Just the blueprints! No code blocks here.
+void play_sound(uint32_t nFrequence);
+void nosound();
+void beep(uint32_t freq, uint32_t duration_ms);
 
 #endif
