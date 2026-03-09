@@ -28,6 +28,7 @@ extern void isr16(); extern void isr17(); extern void isr18(); extern void isr19
 extern void isr20(); extern void isr21(); extern void isr22(); extern void isr23();
 extern void isr24(); extern void isr25(); extern void isr26(); extern void isr27();
 extern void isr28(); extern void isr29(); extern void isr30(); extern void isr31();
+extern void isr44();
 
 
 /*helper fcuntion */
@@ -64,6 +65,7 @@ void init_idt() {
     idt_set_gate(14, (uint32_t)isr14, 0x08, 0x8E);
     idt_set_gate(32, (uint32_t)isr32, 0x08, 0x8E);
     idt_set_gate(33, (uint32_t)isr33, 0x08, 0x8E);
+    idt_set_gate(44, (uint32_t)isr44, 0x08, 0x8E);
 
     idt_flush((uint32_t)&idt_ptr);
 }

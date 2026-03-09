@@ -4,6 +4,7 @@
 
 .global isr33
 .global isr32
+.global isr44
 .global syscall_handler 
 
 /* keyboard ISR */
@@ -11,6 +12,13 @@ isr33:
     cli
     push $0
     push $33
+    jmp isr_common_stub
+
+/* mouse ISR */
+isr44:
+    cli
+    push $0
+    push $44
     jmp isr_common_stub
 
 /* timer ISR */

@@ -21,9 +21,17 @@ static inline void io_wait(void) {
     outb(0x80, 0);
 }
 
+//send a 16-bit word to a hardware port
+static inline void outw(uint16_t port, uint16_t val) {
+    asm volatile ( "outw %0, %1" : : "a"(val), "Nd"(port) );
+}
+
 // Just the blueprints! No code blocks here.
 void play_sound(uint32_t nFrequence);
 void nosound();
 void beep(uint32_t freq, uint32_t duration_ms);
+
+void reboot();
+void shutdown();
 
 #endif

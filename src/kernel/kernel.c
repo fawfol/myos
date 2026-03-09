@@ -17,7 +17,11 @@ void kernel_main(uint32_t mboot_ptr) {
     init_idt();
     init_syscalls();
     pic_remap(0x20, 0x28);
-    pic_enable_keyboard();
+    pic_enable_hardware();
+    
+    extern void init_mouse();
+    init_mouse();
+    
     init_timer(100);
     init_paging();
 
@@ -42,9 +46,9 @@ void kernel_main(uint32_t mboot_ptr) {
 		//check if there is actual data there ('ustar' magic string)
 		char* magic = (char*)(mod->mod_start + 257); 
 		if (magic[0] == 'u' && magic[1] == 's') {
-		    terminal_print("TARmagic present\n");
+		    terminal_print("TAR magic present\n");
 		} else {
-		    terminal_print("ERROR: Nno TAR magic found at module start\n");
+		    terminal_print("ERROR: No TAR magic found at module start\n");
 		}
 
 		init_ramdisk(mod->mod_start);

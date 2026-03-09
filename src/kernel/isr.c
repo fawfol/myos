@@ -5,10 +5,14 @@
 #include "io.h" 
 #include "shell.h" 
 
+void terminal_scroll_up();
+void terminal_scroll_down();
+
 volatile char last_char = 0;
 volatile bool char_available = false;
 volatile bool shell_is_blocking = false;
 
+extern void mouse_handler();
 
 char *exception_messages[] = {
     "Division By Zero",
@@ -108,30 +112,45 @@ void isr_handler(registers_t regs) {
 		else if (regs.int_no == 33) {
             uint8_t scancode = inb(0x60);
             outb(0x20, 0x20); // Send EOI
+			
+			//page UP key
+			if (scancode == 0x49) {
+				terminal_scroll_up();
+				return; //
+			}
+			//page DOWM key
+			else if (scancode == 0x51) {
+				terminal_scroll_down();
+				return;
+			}
 
-            // 1. Detect Shift Key Press
-            if (scancode == 0x2A || scancode == 0x36) {
+            //detect shift key press
+            else if (scancode == 0x2A || scancode == 0x36) {
                 shift_pressed = true;
             } 
-            // 2. Detect Shift Key Release
+            //detect shift key release
             else if (scancode == 0xAA || scancode == 0xB6) {
                 shift_pressed = false;
             } 
-            // 3. Process the actual keydown event
+            //process the actual keydown event
             else if (!(scancode & 0x80)) {
-                // Apply the shift map if shift is currently held
+                //apply the shift map if shift is currently held
                 char c = shift_pressed ? kbd_us_shift[scancode] : kbd_us[scancode];
 
                 if (c != 0) {
                     last_char = c;
                     char_available = true;
 
-                    // Pass to the main shell ONLY if we aren't in askname/edit
                     if (!shell_is_blocking) {
                         shell_handle_keypress(c);
                     }
                 }
             }
         }
+        
+        //mouse func
+        else if (regs.int_no == 44) { // IRQ 12
+		    mouse_handler();
+		}
     }
 }

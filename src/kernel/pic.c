@@ -41,10 +41,17 @@ void pic_remap(int offset1, int offset2) {
     outb(PIC2_DATA, a2);
 }
 
-//by default PIC blocks all interrupts. 
-//we need to unmask keyboard (IRQ 1).
-void pic_enable_keyboard() {
-    //0xFC enables IRQ 0 (Timer) AND IRQ 1 keyboard
-    outb(PIC1_DATA, 0xFC);
-    outb(PIC2_DATA, 0xFF);
+//enable Timer, Keyboard, and Mouse interrupts
+void pic_enable_hardware() {
+    // Master PIC (PIC1):
+    // Bit 0: Timer (IRQ 0) = 0
+    // Bit 1: Keyboard (IRQ 1) = 0
+    // Bit 2: Cascade/Slave PIC (IRQ 2) = 0
+    // Binary: 1111 1000 = 0xF8
+    outb(PIC1_DATA, 0xF8);
+
+    // Slave PIC (PIC2):
+    // Bit 4: Mouse (IRQ 12) = 0
+    // Binary: 1110 1111 = 0xEF
+    outb(PIC2_DATA, 0xEF);
 }

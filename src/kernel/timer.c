@@ -36,14 +36,13 @@ void sleep(uint32_t seconds) {
 void update_clock() {
     uint16_t* vga = (uint16_t*)0xB8000;
     
-    // Clear the area first (Column 70 to 79)
+    //clear the area first (column 70 to 79)
     for(int i = 70; i < 80; i++) {
         vga[i] = (uint16_t)' ' | (uint16_t)0x0F << 8;
     }
 
-    // Convert the tick count to a string manually 
-    // or use a simplified version of your print_number
-    uint32_t temp = timer_ticks / 100; // Show seconds (roughly)
+    //convert the tick count to a string manually use a simplified version of your print_number
+    uint32_t temp = timer_ticks / 100; //show seconds (roughly)
     int pos = 79;
     
     if (temp == 0) {
@@ -80,7 +79,7 @@ void nosound() {
     outb(0x61, tmp);
 }
 
-// A simple beep
+//simple beep
 void beep(uint32_t freq, uint32_t duration_ms) {
     play_sound(freq);
     sleep(duration_ms / 10); //convert ms to ticks (assuming 100Hz)

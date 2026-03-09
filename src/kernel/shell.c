@@ -5,6 +5,68 @@
 #include "memory.h"
 #include "vfs.h"
 
+#define MAX_HISTORY 256
+
+// --- GLOBAL SCROLLING MEMORY ---
+uint16_t history_buffer[MAX_HISTORY][80];//2D array holds 256 rows each 80 characters wide
+uint16_t live_screen[25][80];//keeps track of how many total lines have scrolled off the screen
+uint32_t history_count = 0; 
+uint32_t view_offset = 0; //keeps track of our "camera" (0 = viewing the live prompt, >0 = scrolling back)
+// -------------------------------
+void redraw_view() {
+    uint16_t* vga = (uint16_t*)0xB8000;
+
+    if (view_offset == 0) {
+        //restore the live screen when reaching bottom of screen
+        for (int i = 0; i < 25 * 80; i++) {
+            vga[i] = ((uint16_t*)live_screen)[i];
+        }
+        return;
+    }
+
+    //calculate window when looking into past
+    for (int row = 0; row < 25; row++) {
+        uint32_t past_line = (history_count - view_offset) + row; 
+        
+        for (int col = 0; col < 80; col++) {
+            if (past_line < history_count) {
+                //pull from history buffer
+                uint32_t h_idx = past_line % MAX_HISTORY;
+                vga[row * 80 + col] = history_buffer[h_idx][col];
+            } else {
+                //overlapped back into live screen buffer
+                uint32_t l_idx = past_line - history_count;
+                vga[row * 80 + col] = live_screen[l_idx][col];
+            }
+        }
+    }
+}
+
+void terminal_scroll_up() {
+    if (history_count == 0) return; //nth to see inpast
+    
+    if (view_offset == 0) {
+    //snapshot befoer we leave
+        uint16_t* vga = (uint16_t*)0xB8000;
+        for (int i = 0; i < 25 * 80; i++) {
+            ((uint16_t*)live_screen)[i] = vga[i];
+        }
+    }
+    
+    //move the camera up (limit to how much history we actually have)
+    if (view_offset < history_count && view_offset < MAX_HISTORY) {
+        view_offset++;
+        redraw_view();
+    }
+}
+
+void terminal_scroll_down() {
+    if (view_offset > 0) {
+        view_offset--;
+        redraw_view();
+    }
+}
+
 void shell_cmd_edit(char* filename);
 extern char keyboard_get_last_char();
 volatile bool enter_pressed = false;
@@ -15,6 +77,7 @@ extern volatile bool shell_is_blocking;
 
 void execute_command();
 void run_script(char* filename);
+void terminal_scroll();
 
 static char line_buffer[256];
 
@@ -51,9 +114,12 @@ uint16_t* terminal_buffer = (uint16_t*) 0xB8000;
 uint32_t terminal_index = 0;
 uint8_t current_color = 0x0F; 
 
+//backup for the active terminal so we dont lose our typing prompt
+uint16_t live_screen[25][80];
 #define BUFFER_SIZE 256
 char key_buffer[BUFFER_SIZE];
 int key_index = 0;
+
 
 
 //force a Division by Zero (Exception 0)
@@ -95,9 +161,35 @@ void terminal_print(const char* str) {
         } else {
             terminal_buffer[terminal_index++] = (uint16_t) str[i] | (uint16_t) current_color << 8;
         }
-        if (terminal_index >= 2000) terminal_clear();
+        if (terminal_index >= 2000) {
+        terminal_scroll();
+    }
     }
     update_cursor(terminal_index);
+}
+
+void terminal_scroll() {
+    uint16_t* vga = (uint16_t*)0xB8000;
+    
+    // 1. RESCUE OPERATION: Save the top row into our history buffer before it's gone
+    int history_index = history_count % MAX_HISTORY; // Math magic to loop back to 0 at 256
+    for (int i = 0; i < 80; i++) {
+        history_buffer[history_index][i] = vga[i]; // vga[i] is the top row (0 to 79)
+    }
+    history_count++; // Log that we saved a line
+
+    // 2. Move everything up by one row (80 columns)
+    for (int i = 0; i < 24 * 80; i++) {
+        vga[i] = vga[i + 80];
+    }
+    
+    // 3. Clear the very last row (Row 24)
+    for (int i = 24 * 80; i < 25 * 80; i++) {
+        vga[i] = (uint16_t)' ' | (uint16_t)0x0F << 8; // Change 0x0F to current_color if you use it
+    }
+    
+    // 4. Move the cursor back
+    terminal_index -= 80;
 }
 
 //helper to print numbers (needed for uptime)
@@ -223,6 +315,76 @@ void run_script(char* filename) {
 }
 
 
+// --- POWER CONTROLS ---
+
+void reboot() {
+    terminal_print("Rebooting KalsangOS...\n");
+    uint8_t good = 0x02;
+    while (good & 0x02)
+        good = inb(0x64);
+    outb(0x64, 0xFE); //send the reset command to the 8042 controller
+    //force a Triple Fault if it fails
+    asm volatile("lidt %0; int3" : : "m" ( (uint16_t[3]){0,0,0} ));
+}
+
+void shutdown() {
+    terminal_print("Shutting down KalsangOS...\n");
+    sleep(100);
+
+    // QEMU / Bochs Magic Poweroff Ports
+    outw(0x604, 0x2000);  //modern QEMU
+    outw(0xB004, 0x2000); //older QEMU / Bochs
+    
+    // If running on real hardware and ACPI fails, halt the CPU
+    terminal_print("It is now safe to turn off your computer.\n");
+    asm volatile("cli; hlt");
+}
+
+
+/////////HELPHLEPHLEP
+void print_help() {
+    terminal_print("\n================ KALSANG OS v0.1 =================\n");
+    
+    terminal_print("SYSTEM & UTILITIES:\n");
+    terminal_print("  help            - Show this command manual\n");
+    terminal_print("  sysinfo         - Display CPU and OS hardware details\n");
+    terminal_print("  uptime          - Show system uptime in seconds\n");
+    terminal_print("  sleep <sec>     - Pause the CPU for X seconds\n");
+    terminal_print("  echo <text>     - Print dynamic text back to the screen\n");
+    terminal_print("  color <name>    - Change text (red, green, blue, white, matrix)\n");
+    terminal_print("  clear           - Clear the terminal screen\n");
+    terminal_print("  beep            - Play a test tone on the PC speaker\n");
+    terminal_print("  reboot          - Restart KalsangOS\n");
+    terminal_print("  shutdown/exit   - Power off the system safely\n\n");
+
+    terminal_print("FILE SYSTEM:\n");
+    terminal_print("  ls              - List all files in the RAMDisk\n");
+    terminal_print("  cat <file>      - Read and display a text file\n");
+    terminal_print("  edit <file>     - Open the text editor to create/modify a file\n\n");
+
+    terminal_print("EXECUTION & SCRIPTING:\n");
+    terminal_print("  run <file>      - Execute a compiled machine-code binary\n");
+    terminal_print("  run_script <f>  - Execute a plain-text KalsangOS script\n");
+    terminal_print("  make_bin <file> - Convert raw hex string into an executable\n\n");
+
+    terminal_print("MEMORY & PROCESSES:\n");
+    terminal_print("  memstat         - View total, used, and free Heap memory\n");
+    terminal_print("  ps              - Show active memory blocks (running tasks)\n");
+    terminal_print("  kill <addr>     - Force-free a specific memory address\n\n");
+
+    terminal_print("DEBUGGING & KERNEL TESTS:\n");
+    terminal_print("  peek <addr>     - View 8 bytes of raw hex at an address\n");
+    terminal_print("  scan <addr>     - Scan memory for 'ustar' magic signatures\n");
+    terminal_print("  testcrash       - Simulate a Division-by-Zero CPU exception\n");
+    terminal_print("  syscall_test    - Test Interrupt 0x80 (SYS_PRINT) mechanism\n");
+    terminal_print("  exec_test       - Inject and execute raw code in User Space\n");
+    terminal_print("  write_test      - Simulate a compiler saving an output file\n");
+    terminal_print("  malloc          - Test dynamic heap memory allocation\n");
+
+    terminal_print("==================================================\n\n");
+}
+
+
 // === SHELL LOGIC ===
 void execute_command() {
     terminal_print("\n");
@@ -233,44 +395,19 @@ void execute_command() {
         return;
     }
 
-    // 1. Search for dynamic commands first
+    //search for dynamic commands first
     shell_cmd_t* current = cmd_list;
     while (current != NULL) {
         if (strcmp(key_buffer, current->name) == 0) {
-            current->function(NULL); // Execute the live-added code
+            current->function(NULL); //execute the live-added code
             goto done;
         }
         current = current->next;
     }
-
-    //fallback to hard-coded essentials
-    if (strcmp(key_buffer, "help") == 0) {
-        terminal_print("KalsangOS Commands: \n");
-        terminal_print("- help    : Shows this menu\n");
-        terminal_print("- clear   : Clears the screen\n");
-        terminal_print("- color   : Changes text color (red, green, blue, matrix, white)\n");
-        terminal_print("- testcrash  : Computer crash by exception simulation and halts CPU\n");
-        terminal_print("- sysinfo : Displays hardware information\n");
-        terminal_print("- uptime  : Shows how long the OS has been running\n");
-        terminal_print("- reboot  : Restarts the computer\n");
-        terminal_print("- sleep  : CPU enters low power mode for mentioned duration of seconds\n");
-        terminal_print("- memstat  : Display memory stats\n");
-        terminal_print("- malloc  : Memory allocat\n");
-        terminal_print("- ls  : List directory content\n");
-        terminal_print("- cat  :  \n");
-        terminal_print("- peek  : peek [address_in_hex]\n");
-        terminal_print("- scan  : scan memory starting at your module address\n");
-        terminal_print("- syscall_test  : prove your syscall mechanism is ready for a compiler\n");
-        terminal_print("- run  : search for a binary file and execute it\n");
-        terminal_print("- exec_test  : command allocates memory writes raw machine code into it then jumps into it simulates kernel loading a compiler\n");
-        terminal_print("- write_test  : manually call vfs_create to simulate a program (like a compiler) saving a new output file\n");
-        terminal_print("- edit  : edit a file content or create a new file if file name doesnt exist.\n");
-        terminal_print("- run_script  : executes plain text containing the shell commands\n");
-        terminal_print("- make_bin  : let you type hex codes into the shell and save them as a safe executable binary\n");
-        terminal_print("- ps  : show which programs are currently Sleeping or Running in the background while you type in the shell\n");
-        terminal_print("- kill  : kill process by freeing its memory if process gets stuck -kill process hex-\n");  
-        terminal_print("- beep  : high pitched kernel ok sound\n");      
-    } 
+    
+	if (strcmp(key_buffer, "help") == 0) {
+        print_help();
+    }
     else if (strcmp(key_buffer, "clear") == 0) {
         terminal_clear();
     } 
@@ -348,12 +485,20 @@ void execute_command() {
         terminal_print_number(seconds);
         terminal_print(" seconds\n");
     } 
+    /*
     else if (strcmp(key_buffer, "reboot") == 0) {
         terminal_print("Rebooting KalsangOS...\n");
         outb(0x64, 0xFE);
         asm volatile("cli");
         asm volatile("hlt");
-    } 
+    } */
+    // === POWER COMMANDS ===
+    else if (strcmp(key_buffer, "reboot") == 0) {
+        reboot();
+    }
+    else if (strcmp(key_buffer, "shutdown") == 0 || strcmp(key_buffer, "exit") == 0) {
+        shutdown();
+    }
     else if (strncmp(key_buffer, "sleep ", 6) == 0) {
         const char* arg = key_buffer + 6; 
         uint32_t sec = string_to_int(arg);

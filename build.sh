@@ -30,13 +30,13 @@ as --32 src/boot/boot.s -o obj/boot.o
 as --32 src/boot/interrupts.s -o obj/interrupts.o
 
 echo "compiling kernel base..."
-for file in kernel gdt idt isr pic shell timer paging memory ramdisk; do
+for file in kernel gdt idt isr pic shell timer paging memory ramdisk mouse; do
     gcc -m32 -c src/kernel/$file.c -o obj/$file.o -std=gnu99 -ffreestanding -O2 -Wall -Wextra -fno-stack-protector
 done
 
 echo "linking KalsangOS..."
 ld -m elf_i386 --no-warn-rwx-segments -T src/linker.ld -o isodir/boot/myos.bin \
-    obj/boot.o obj/interrupts.o obj/kernel.o obj/gdt.o obj/idt.o obj/isr.o \
+    obj/boot.o obj/interrupts.o obj/kernel.o obj/gdt.o obj/idt.o obj/isr.o obj/mouse.o\
     obj/pic.o obj/shell.o obj/timer.o obj/paging.o obj/memory.o obj/ramdisk.o
 
 # === FORGE ISO ===
