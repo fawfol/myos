@@ -54,16 +54,18 @@ void init_ramdisk(uint32_t location) {
 
         //check for ustar magic to confirm this is a valid TAR header
         //some tar creators put "ustar " (with a space) or "ustar\0"
-        if (header->magic[0] != 'u' || header->magic[1] != 's') {
-            break; 
-        }
+        if (header->name[0] == 0) {
+			break; // end of tar
+		}
 
         vfs_node_t *node = &ramdisk_nodes[node_count];
         
         //copy name safely
-        for(int i = 0; i < 100 && header->name[i] != '\0'; i++) {
-            node->name[i] = header->name[i];
-        }
+		memset(node->name, 0, 128);
+
+		for (int i = 0; i < 100 && header->name[i] != 0; i++) {
+			node->name[i] = header->name[i];
+		}
 
         node->length = octal_to_int(header->size);
         node->ptr = (vfs_node_t*)(address + 512); //data follows header
@@ -78,63 +80,45 @@ void init_ramdisk(uint32_t location) {
     }
 }
 
-/*void vfs_create(char* name, char* data, uint32_t size) {
-    if (node_count >= 32) return; // RAMDisk full
-
-    vfs_node_t* new_node = &ramdisk_nodes[node_count];
-    
-    // 1set metadata
-    memset(new_node->name, 0, 100);
-    memcpy(new_node->name, name, strlen(name));
-    new_node->length = size;
-    new_node->flags = VFS_FILE;
-
-    // 2allocate real space on the heap for the file data
-    new_node->ptr = (vfs_node_t*)malloc(size);
-    
-    // 3copy the data from the user program into the new kernel buffer
-    memcpy((void*)new_node->ptr, data, size);
-
-    node_count++;
-}*/
 void vfs_create(char* name, char* data, uint32_t size) {
-    if (node_count >= 32) {
-        terminal_print("Error: RAMDisk node limit reached.\n");
+
+    vfs_node_t* new_node = (vfs_node_t*)malloc(sizeof(vfs_node_t));
+    if (!new_node) {
+        terminal_print("Error: Out of memory\n");
         return;
     }
 
-    vfs_node_t* new_node = &ramdisk_nodes[node_count];
-    
-    //initialize and copy the name
-    memset(new_node->name, 0, 100);
-    for(int i = 0; i < 99 && name[i] != '\0'; i++) {
+    memset(new_node->name, 0, 128);
+
+    for(int i = 0; i < 127 && name[i] != '\0'; i++) {
         new_node->name[i] = name[i];
     }
 
     new_node->length = size;
     new_node->flags = VFS_FILE;
 
-    //allocate memory from the heap we initialized in kernel_main
     new_node->ptr = (vfs_node_t*)malloc(size);
-    
-    if (new_node->ptr != NULL) {
-        memcpy((void*)new_node->ptr, data, size);
-        node_count++;
-    } else {
-        terminal_print("Error: Failed to allocate memory for new file\n");
-    }
+    memcpy((void*)new_node->ptr, data, size);
+
+    // Insert into linked list
+    new_node->ptr = (vfs_node_t*)data;
+
+    new_node->next = vfs_root;
+    vfs_root = new_node;
+
+    node_count++;
 }
 
 vfs_node_t* vfs_find(vfs_node_t* root, char* name) {
-    //assume ramdisk_nodes is global array from earlier
-    (void)root; //do nithing empty for now    
-    extern vfs_node_t ramdisk_nodes[32];
-    extern int node_count;
 
-    for (int i = 0; i < node_count; i++) {
-        if (strcmp(ramdisk_nodes[i].name, name) == 0) {
-            return &ramdisk_nodes[i];
+    vfs_node_t* current = root;
+
+    while (current != NULL) {
+        if (strcmp(current->name, name) == 0) {
+            return current;
         }
+        current = current->next;
     }
+
     return NULL;
 }

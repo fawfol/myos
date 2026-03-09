@@ -7,6 +7,11 @@
 
 #define MAX_HISTORY 256
 
+#define BUFFER_SIZE 256
+char key_buffer[BUFFER_SIZE];
+int key_index = 0;
+
+
 // --- GLOBAL SCROLLING MEMORY ---
 uint16_t history_buffer[MAX_HISTORY][80];//2D array holds 256 rows each 80 characters wide
 uint16_t live_screen[25][80];//keeps track of how many total lines have scrolled off the screen
@@ -113,14 +118,6 @@ void add_command(char* name, shell_func_t func) {
 uint16_t* terminal_buffer = (uint16_t*) 0xB8000;
 uint32_t terminal_index = 0;
 uint8_t current_color = 0x0F; 
-
-//backup for the active terminal so we dont lose our typing prompt
-uint16_t live_screen[25][80];
-#define BUFFER_SIZE 256
-char key_buffer[BUFFER_SIZE];
-int key_index = 0;
-
-
 
 //force a Division by Zero (Exception 0)
 void trigger_divide_by_zero() {
@@ -574,16 +571,16 @@ void execute_command() {
     
     // === LS comd ===
     else if (strcmp(key_buffer, "ls") == 0) {
-		extern vfs_node_t ramdisk_nodes[];
-		extern int node_count;
-
-		terminal_print("Files in Initrd:\n");
+		terminal_print("Files in RAMDisk:\n");
 		for (int i = 0; i < node_count; i++) {
 		    terminal_print("- ");
 		    terminal_print(ramdisk_nodes[i].name);
 		    terminal_print(" (");
 		    terminal_print_number(ramdisk_nodes[i].length);
 		    terminal_print(" bytes)\n");
+		}
+		if (node_count == 0) {
+		    terminal_print("RAMDisk empty.\n");
 		}
 	}
 	
@@ -791,6 +788,19 @@ void execute_command() {
     else if (strncmp(key_buffer, "beep", 4) == 0) {
         beep(750, 200); 
     }
+    else if (strcmp(key_buffer, "leak") == 0) {
+        terminal_print("Stealing 1024 bytes of RAM...\n");
+        // We call malloc but we purposely do NOT save the pointer.
+        // This means the memory is lost forever (a true memory leak)
+        void* stolen_ram = malloc(1024); 
+        
+        if (stolen_ram == NULL) {
+            terminal_print("Error: Out of Memory!\n");
+        } else {
+            terminal_print("Success: 1 KB leaked.\n");
+        }
+        return;
+    }
 	else {
         terminal_print("Unknown command: ");
         terminal_print(key_buffer);
@@ -835,7 +845,7 @@ void shell_cmd_edit(char* filename) {
     }
 
     terminal_print("--- KalsangOS Line Editor ---\n");
-    terminal_print("Type your code. Type 'SAVE' on a new line to exit.\n");
+    terminal_print("Type 'SAVE' on a new line to Save and exit\nType 'EXIT' on a new line to EXIT no save\nType 'SAVEAS `filename` ' to save file with new name\n");
 
     // Allocate 4KB for the new file buffer
     char* edit_buffer = (char*)malloc(4096);
@@ -845,13 +855,24 @@ void shell_cmd_edit(char* filename) {
     while (editing) {
         terminal_print("> ");
         char* line = shell_readline(); 
-
-        if (strcmp(line, "SAVE") == 0) {
+		if (strcmp(line, "EXIT") == 0) {
+		    free(edit_buffer);
+		    terminal_print("Exited editor without saving.\n");
+		    return;
+		}
+        else if (strcmp(line, "SAVE") == 0) {
             editing = false;
-        } else {
+        } 
+        else if (strncmp(line, "SAVEAS ", 7) == 0) {
+			filename = line + 7; 
+			editing = false;
+		}else {
             //append line to buffer
             uint32_t line_len = strlen(line);
-            memcpy(edit_buffer + total_len, line, line_len);
+			if (total_len + line_len + 1 >= 4096) {
+				terminal_print("Editor buffer full.\n");
+				continue;
+			}
             total_len += line_len;
             edit_buffer[total_len++] = '\n';
         }
@@ -867,7 +888,10 @@ void shell_cmd_edit(char* filename) {
         memcpy(permanent_storage, edit_buffer, total_len);
 
         //overwrite old file pointer and length
-        existing_file->ptr = (void*)permanent_storage;
+        if (existing_file->ptr != NULL)
+			free(existing_file->ptr);
+
+		existing_file->ptr = (void*)permanent_storage;
         existing_file->length = total_len;
         
         terminal_print("Existing file overwritten and saved.\n");

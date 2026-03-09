@@ -1,6 +1,8 @@
 #include "timer.h"
 #include "io.h"
 
+extern void get_mem_stats(uint32_t* used, uint32_t* free_mem);
+
 void update_clock();
 
 volatile uint32_t timer_ticks = 0;
@@ -35,24 +37,32 @@ void sleep(uint32_t seconds) {
 
 void update_clock() {
     uint16_t* vga = (uint16_t*)0xB8000;
-    
-    //clear the area first (column 70 to 79)
-    for(int i = 70; i < 80; i++) {
-        vga[i] = (uint16_t)' ' | (uint16_t)0x0F << 8;
-    }
+    uint32_t used_mem = 0;
+    uint32_t free_mem = 0;
+    get_mem_stats(&used_mem, &free_mem);
 
-    //convert the tick count to a string manually use a simplified version of your print_number
-    uint32_t temp = timer_ticks / 100; //show seconds (roughly)
-    int pos = 79;
+    uint32_t temp = used_mem; //display the used bytes
+    int pos = 79; //start at far right edge of the screen
     
+    //draw " B" at the end (using Light Cyan 0x0B)
+    vga[pos--] = (uint16_t)'B' | (uint16_t)0x0B << 8;
+    vga[pos--] = (uint16_t)' ' | (uint16_t)0x0B << 8;
+
+    //draw the number backwards
     if (temp == 0) {
-        vga[pos] = (uint16_t)'0' | (uint16_t)0x0E << 8;
+        vga[pos--] = (uint16_t)'0' | (uint16_t)0x0B << 8;
     }
 
-    while (temp > 0 && pos > 70) {
-        vga[pos--] = (uint16_t)('0' + (temp % 10)) | (uint16_t)0x0E << 8;
+    while (temp > 0 && pos >= 65) {
+        vga[pos--] = (uint16_t)('0' + (temp % 10)) | (uint16_t)0x0B << 8;
         temp /= 10;
     }
+
+    //clear any remaining space to left so old text doesnt get stuck
+    while (pos >= 65) {
+        vga[pos--] = (uint16_t)' ' | (uint16_t)0x0F << 8;
+    }
+    
 }
 
 //play a sound at a specific frequency
