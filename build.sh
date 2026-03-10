@@ -30,14 +30,14 @@ as --32 src/boot/boot.s -o obj/boot.o
 as --32 src/boot/interrupts.s -o obj/interrupts.o
 
 echo "compiling kernel base..."
-for file in kernel gdt idt isr pic shell timer paging memory ramdisk mouse; do
+for file in kernel gdt idt isr pic shell timer paging memory ramdisk mouse ata; do
     gcc -m32 -c src/kernel/$file.c -o obj/$file.o -std=gnu99 -ffreestanding -O2 -Wall -Wextra -fno-stack-protector
 done
 
 echo "linking KalsangOS..."
 ld -m elf_i386 --no-warn-rwx-segments -T src/linker.ld -o isodir/boot/myos.bin \
     obj/boot.o obj/interrupts.o obj/kernel.o obj/gdt.o obj/idt.o obj/isr.o obj/mouse.o\
-    obj/pic.o obj/shell.o obj/timer.o obj/paging.o obj/memory.o obj/ramdisk.o
+    obj/pic.o obj/shell.o obj/timer.o obj/paging.o obj/memory.o obj/ramdisk.o obj/ata.o
 
 # === FORGE ISO ===
 echo "forging ISO..."
@@ -54,3 +54,15 @@ echo "------------------------------------------------"
 echo "Build complete! Boot KalsangOS.iso"
 echo "WELCOME TO KalsangOS"
 echo "------------------------------------------------"
+
+# === CREATE QEMU DISK IF NOT EXISTS ===
+if [ ! -f disk.img ]; then
+    echo "creating virtual disk..."
+    qemu-img create disk.img 64M
+fi
+
+# === RUN QEMU ===
+echo "starting QEMU..."
+qemu-system-i386 \
+-cdrom KalsangOS.iso \
+-drive file=disk.img,format=raw

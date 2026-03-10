@@ -9,6 +9,7 @@
 #include "memory.h"
 #include "multiboot.h"
 #include "vfs.h"
+#include "ata.h"
 
 void kernel_main(uint32_t mboot_ptr) {
     multiboot_info_t* mbi = (multiboot_info_t*)mboot_ptr;
@@ -18,6 +19,39 @@ void kernel_main(uint32_t mboot_ptr) {
     init_syscalls();
     pic_remap(0x20, 0x28);
     pic_enable_hardware();
+    ata_init();
+    
+    uint8_t buffer[512];
+
+	terminal_print("Reading sector...\n");
+
+	ata_read_sector(0, buffer);
+
+	terminal_print("Sector bytes: ");
+
+	for(int i = 0; i < 16; i++)
+	{
+		terminal_print_hex(buffer[i]);
+		terminal_print(" ");
+	}
+	
+	terminal_print("\n");
+    
+    terminal_print("ATA driver ready\n");
+
+	terminal_print("Reading sector...\n");
+
+	ata_read_sector(0, buffer);
+
+		terminal_print("Sector data: ");for(int i = 0; i < 16; i++)
+	{
+		terminal_print_hex(buffer[i]);
+		terminal_print(" ");
+	}
+	
+	sleep(1);
+	
+	terminal_print("\n");
     
     extern void init_mouse();
     init_mouse();

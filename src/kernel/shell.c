@@ -4,6 +4,7 @@
 #include "timer.h"
 #include "memory.h"
 #include "vfs.h"
+#include "ata.h"
 
 #define MAX_HISTORY 256
 
@@ -163,6 +164,18 @@ void terminal_print(const char* str) {
     }
     }
     update_cursor(terminal_index);
+}
+
+void terminal_print_hex(uint8_t value)
+{
+    char hex[] = "0123456789ABCDEF";
+
+    char out[3];
+    out[0] = hex[(value >> 4) & 0xF];
+    out[1] = hex[value & 0xF];
+    out[2] = '\0';
+
+    terminal_print(out);
 }
 
 void terminal_scroll() {
@@ -801,6 +814,17 @@ void execute_command() {
         }
         return;
     }
+    else if(strcmp(key_buffer, "disk") == 0)
+	{
+		uint8_t buffer[512];
+		ata_read_sector(0, buffer);
+		for(int i=0;i<16;i++)
+		{
+		    terminal_print_hex(buffer[i]);
+		    terminal_print(" ");
+		}
+		terminal_print("\n");
+	}
 	else {
         terminal_print("Unknown command: ");
         terminal_print(key_buffer);
