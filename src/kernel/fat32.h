@@ -36,6 +36,26 @@ typedef struct {
     char     fs_type[8];         // "FAT32   "
 } __attribute__((packed)) fat32_bpb_t;
 
+// FAT32 32-byte Directory Entry
+typedef struct {
+    char     name[11];               //8.3 filename (e.g., "TEST    TXT")
+    uint8_t  attributes;             //read-only, hidden, directory and all
+    uint8_t  reserved;
+    uint8_t  creation_time_tenths;
+    uint16_t creation_time;
+    uint16_t creation_date;
+    uint16_t last_access_date;
+    uint16_t cluster_high;           //high 16 bits of the starting cluster
+    uint16_t last_mod_time;
+    uint16_t last_mod_date;
+    uint16_t cluster_low;            //low 16 bits of the starting cluster
+    uint32_t size;                   //file size in bytes
+} __attribute__((packed)) fat32_dir_entry_t;
+
+void fat32_list_root();
+
+void fat32_read_file(char* filename);
+
 void init_fat32(uint32_t partition_lba);
 
 #endif

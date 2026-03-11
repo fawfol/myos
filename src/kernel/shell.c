@@ -5,6 +5,7 @@
 #include "memory.h"
 #include "vfs.h"
 #include "ata.h"
+#include "fat32.h"
 
 #define MAX_HISTORY 256
 
@@ -75,6 +76,7 @@ void terminal_scroll_down() {
 
 void shell_cmd_edit(char* filename);
 extern char keyboard_get_last_char();
+extern void fat32_list_root();
 volatile bool enter_pressed = false;
 
 extern volatile bool char_available;
@@ -368,8 +370,10 @@ void print_help() {
     terminal_print("  shutdown/exit   - Power off the system safely\n\n");
 
     terminal_print("FILE SYSTEM:\n");
-    terminal_print("  ls              - List all files in the RAMDisk\n");
-    terminal_print("  cat <file>      - Read and display a text file\n");
+    terminal_print("  ls              - List files on the primary FAT32 disk\n");
+    terminal_print("  cat <file>      - Read a text file from the FAT32 disk\n");
+    terminal_print("  lsram           - List files in the temporary RAMDisk\n");
+    terminal_print("  catram <file>   - Read a text file from the RAMDisk\n");
     terminal_print("  edit <file>     - Open the text editor to create/modify a file\n\n");
 
     terminal_print("EXECUTION & SCRIPTING:\n");
@@ -583,7 +587,7 @@ void execute_command() {
     }
     
     // === LS comd ===
-    else if (strcmp(key_buffer, "ls") == 0) {
+    else if (strcmp(key_buffer, "lsram") == 0) {
 		terminal_print("Files in RAMDisk:\n");
 		for (int i = 0; i < node_count; i++) {
 		    terminal_print("- ");
@@ -597,8 +601,11 @@ void execute_command() {
 		}
 	}
 	
+	else if (strcmp(key_buffer, "ls") == 0) {
+        fat32_list_root();
+    }
 	// === cat ===
-	else if (strncmp(key_buffer, "cat ", 4) == 0) {
+	else if (strncmp(key_buffer, "catram ", 4) == 0) {
 		const char* filename = key_buffer + 4;
 		bool found = false;
 
@@ -620,6 +627,10 @@ void execute_command() {
 		    terminal_print("File not found.\n");
 		}
 	}
+    else if (strncmp(key_buffer, "cat ", 7) == 0) {
+        char* filename = key_buffer + 7;
+        fat32_read_file(filename);
+    }
 	else if (strncmp(key_buffer, "peek ", 5) == 0) {
 		char *addr_str = key_buffer + 5;
 		uint32_t addr = hex_to_int(addr_str);
@@ -825,6 +836,7 @@ void execute_command() {
 		}
 		terminal_print("\n");
 	}
+	
 	else {
         terminal_print("Unknown command: ");
         terminal_print(key_buffer);
