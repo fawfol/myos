@@ -10,6 +10,18 @@
 #include "multiboot.h"
 #include "vfs.h"
 #include "ata.h"
+#include "fat32.h"
+
+typedef struct
+{
+    uint8_t status;
+    uint8_t chs_first[3];
+    uint8_t type;
+    uint8_t chs_last[3];
+    uint32_t lba_start;
+    uint32_t sector_count;
+} __attribute__((packed)) mbr_partition_t;
+
 
 void kernel_main(uint32_t mboot_ptr) {
     multiboot_info_t* mbi = (multiboot_info_t*)mboot_ptr;
@@ -20,38 +32,44 @@ void kernel_main(uint32_t mboot_ptr) {
     pic_remap(0x20, 0x28);
     pic_enable_hardware();
     ata_init();
-    
-    uint8_t buffer[512];
+		uint8_t buffer[512];
 
 	terminal_print("Reading sector...\n");
 
 	ata_read_sector(0, buffer);
 
-	terminal_print("Sector bytes: ");
+	/* ---- MBR signature check ---- */
 
-	for(int i = 0; i < 16; i++)
-	{
-		terminal_print_hex(buffer[i]);
-		terminal_print(" ");
-	}
-	
+	uint16_t signature = buffer[510] | (buffer[511] << 8);
+
+	terminal_print("Boot sig: ");
+	terminal_print_hex(signature);
 	terminal_print("\n");
-    
-    terminal_print("ATA driver ready\n");
 
-	terminal_print("Reading sector...\n");
+	/* ---- Partition table ---- */
+    mbr_partition_t* p = (mbr_partition_t*)(buffer + 446);
 
-	ata_read_sector(0, buffer);
-
-		terminal_print("Sector data: ");for(int i = 0; i < 16; i++)
+    for(int i=0;i<4;i++)
 	{
-		terminal_print_hex(buffer[i]);
-		terminal_print(" ");
-	}
+		terminal_print("Partition ");
+		terminal_print_hex(i);
+		terminal_print("\n");
+
+		terminal_print("Type: ");
+		terminal_print_hex(p[i].type);
+		terminal_print("\n");
+
+		terminal_print("Start LBA: ");
+		terminal_print_number(p[i].lba_start);
+		terminal_print("\n\n");
+
+        //type 0x0B and 0x0C are FAT32 with LBA
+        if (p[i].type == 0x0B || p[i].type == 0x0C) {
+            init_fat32(p[i].lba_start);
+            break; //found our drive so stop searching the MBR
+        }
 	
 	sleep(1);
-	
-	terminal_print("\n");
     
     extern void init_mouse();
     init_mouse();

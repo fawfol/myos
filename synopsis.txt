@@ -166,3 +166,151 @@ Interface	Syscall (int 0x80)	Safely requesting Kernel services
 Kernel Mode	VFS / RAMDisk	Finding and Reading source files
 Hardware	x86 CPU / RAM	Executing the raw machine instructions
 ========================================
+
+
+
+The Road to a Self-Hosting OS
+1️⃣ Persistent Filesystem (Very Important)
+
+Right now your files are in a RAM disk.
+When reboot happens → everything disappears.
+
+You must add a real filesystem on disk.
+
+The easiest first choice is FAT32 because:
+
+simple
+
+well documented
+
+works with USB drives
+
+Linux tools can create it
+
+After this step your OS can do:
+
+create file
+edit file
+save file
+reboot
+file still exists
+2️⃣ File System API in Kernel
+
+You need kernel functions like:
+
+open()
+read()
+write()
+create()
+delete()
+
+Your shell can then support commands like:
+
+ls
+cat
+write
+rm
+3️⃣ Text Editor Inside the OS
+
+You’ll need a simple editor like:
+
+edit hello.c
+
+Minimal version:
+
+line based editor
+
+Example usage:
+
+edit kernel.c
+4️⃣ A Compiler Inside the OS
+
+This is the hardest part.
+
+Eventually you want a compiler like:
+
+Tiny C Compiler
+
+or a small custom C compiler
+
+Then inside your OS you could run:
+
+tcc hello.c
+
+and produce a binary.
+
+5️⃣ Kernel Module Loading (Very Powerful)
+
+Instead of rebuilding the kernel each time, allow loading modules.
+
+Example:
+
+load driver.bin
+
+Linux uses this approach too.
+
+The Realistic Development Path
+
+Most hobby OS projects reach self-hosting like this:
+
+Stage 1
+host machine compiles kernel
+↓
+Stage 2
+OS has filesystem + shell tools
+↓
+Stage 3
+OS can compile user programs
+↓
+Stage 4
+OS compiles parts of itself
+↓
+Stage 5
+fully self-hosting OS
+
+You are currently at Stage 1.5.
+
+The Next Best Feature for Your OS
+
+The most important next step is:
+
+Build a real filesystem (FAT32) reader.
+
+Because once you can do:
+
+ls
+cat file
+
+your OS becomes dramatically more powerful.
+
+What This Unlocks
+
+After filesystem support you can:
+
+store programs
+store source code
+store configuration
+store modules
+
+Which moves you toward live development inside the OS.
+
+A Vision of Your Future OS
+
+Eventually your OS might look like:
+
+KalsangOS shell
+
+> ls
+kernel.c
+shell.c
+hello.c
+
+> edit hello.c
+(edit code)
+
+> cc hello.c
+
+> run hello
+Hello world
+
+That’s the self-hosting dream.
