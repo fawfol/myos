@@ -55,6 +55,8 @@ typedef struct {
 void fat32_list_root();
 
 void fat32_read_file(char* filename);
+void fat32_write_file(char* filename, char* data, uint32_t size);
+void fat32_delete_file(char* filename);
 
 void init_fat32(uint32_t partition_lba);
 

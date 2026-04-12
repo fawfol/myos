@@ -10,9 +10,10 @@
 #define MAX_HISTORY 256
 
 #define BUFFER_SIZE 256
+
+
 char key_buffer[BUFFER_SIZE];
 int key_index = 0;
-
 
 // --- GLOBAL SCROLLING MEMORY ---
 uint16_t history_buffer[MAX_HISTORY][80];//2D array holds 256 rows each 80 characters wide
@@ -79,6 +80,7 @@ extern char keyboard_get_last_char();
 extern void fat32_list_root();
 volatile bool enter_pressed = false;
 
+extern uint32_t fat32_get_file_data(char* filename, char* out_buffer);
 extern volatile bool char_available;
 extern volatile char last_char;
 extern volatile bool shell_is_blocking;
@@ -375,6 +377,7 @@ void print_help() {
     terminal_print("  lsram           - List files in the temporary RAMDisk\n");
     terminal_print("  catram <file>   - Read a text file from the RAMDisk\n");
     terminal_print("  edit <file>     - Open the text editor to create/modify a file\n\n");
+    terminal_print("  rm <file>       - delete a file from the FAT32 disk\n");
 
     terminal_print("EXECUTION & SCRIPTING:\n");
     terminal_print("  run <file>      - Execute a compiled machine-code binary\n");
@@ -627,9 +630,13 @@ void execute_command() {
 		    terminal_print("File not found.\n");
 		}
 	}
-    else if (strncmp(key_buffer, "cat ", 7) == 0) {
-        char* filename = key_buffer + 7;
+    else if (strncmp(key_buffer, "cat ", 4) == 0) {
+        char* filename = key_buffer + 4;
         fat32_read_file(filename);
+    }
+    else if (strncmp(key_buffer, "rm ", 3) == 0) {
+        char* filename = key_buffer + 3;
+        fat32_delete_file(filename);
     }
 	else if (strncmp(key_buffer, "peek ", 5) == 0) {
 		char *addr_str = key_buffer + 5;
@@ -684,26 +691,9 @@ void execute_command() {
 		// === compliler and run === /
 	else if (strncmp(key_buffer, "run ", 4) == 0) {
 		char* filename = key_buffer + 4;
-		vfs_node_t* file = vfs_find(vfs_root, filename);
-
-		if (file) {
-		    terminal_print("Loading execution point: ");
-		    terminal_print_number((uint32_t)file->ptr);
-		    terminal_print("\n");
-
-		    //create a function pointer tofile location in RAM
-		    typedef void (*entry_point)();
-		    entry_point start = (entry_point)file->ptr;
-
-		    //jump
-		    start();
-		    
-		    terminal_print("\nExecution finished.\n");
-		} else {
-		    terminal_print("Error: Executable not found.\n");
-		}
+		run_kx_file(filename);
 	}
-	
+			
 	else if (strcmp(key_buffer, "exec_test") == 0) {
 		terminal_print("Allocating User Space...\n");
 
@@ -859,7 +849,7 @@ void shell_handle_keypress(char c) {
             terminal_buffer[terminal_index] = (uint16_t) ' ' | (uint16_t) current_color << 8; 
             update_cursor(terminal_index);
         }
-    } else if (c == '\n') {\
+    } else if (c == '\n') {
         enter_pressed = true; 
     } else {
         if (key_index < BUFFER_SIZE - 1) {
@@ -880,71 +870,79 @@ void shell_cmd_edit(char* filename) {
         return;
     }
 
-    terminal_print("--- KalsangOS Line Editor ---\n");
-    terminal_print("Type 'SAVE' on a new line to Save and exit\nType 'EXIT' on a new line to EXIT no save\nType 'SAVEAS `filename` ' to save file with new name\n");
-
-    // Allocate 4KB for the new file buffer
     char* edit_buffer = (char*)malloc(4096);
-    uint32_t total_len = 0;
+    memset(edit_buffer, 0, 4096);
+    uint32_t total_len = fat32_get_file_data(filename, edit_buffer);
+    
     bool editing = true;
+    char line_tmp[256];
+    int line_idx = 0;
 
     while (editing) {
-        terminal_print("> ");
-        char* line = shell_readline(); 
-		if (strcmp(line, "EXIT") == 0) {
-		    free(edit_buffer);
-		    terminal_print("Exited editor without saving.\n");
-		    return;
-		}
-        else if (strcmp(line, "SAVE") == 0) {
-            editing = false;
+        terminal_clear();
+        terminal_print("--- KalsangOS Visual Editor: ");
+        terminal_print(filename);
+        terminal_print(" ---\n");
+        terminal_print(edit_buffer); 
+        
+        terminal_print("\n> ");
+        line_tmp[line_idx] = '\0';
+        terminal_print(line_tmp);
+        
+        // Status bar at the very bottom
+        uint32_t current_idx = terminal_index;
+        terminal_index = 24 * 80; 
+        terminal_print("^S: Save and Exit | ^X: Exit (No Save)");
+        terminal_index = current_idx;
+        update_cursor(terminal_index);
+
+        char_available = false;
+        while(!char_available) { asm volatile("hlt"); }
+        
+        char c = last_char;
+        char_available = false;
+
+        // --- CTRL KEY DETECTION ---
+        if (c == 24) { // CTRL + X
+            free(edit_buffer);
+            terminal_clear();
+            terminal_print("Exited without saving.\n");
+            return;
+        }
+        else if (c == 19) { // CTRL + S
+            editing = false; // Break loop to save
+        }
+        else if (c == '\n') {
+            line_tmp[line_idx] = '\0';
+            uint32_t len = strlen(line_tmp);
+            if (total_len + len + 1 < 4096) {
+                memcpy(edit_buffer + total_len, line_tmp, len);
+                total_len += len;
+                edit_buffer[total_len++] = '\n';
+                edit_buffer[total_len] = '\0';
+            }
+            line_idx = 0;
         } 
-        else if (strncmp(line, "SAVEAS ", 7) == 0) {
-			filename = line + 7; 
-			editing = false;
-		}else {
-            //append line to buffer
-            uint32_t line_len = strlen(line);
-			if (total_len + line_len + 1 >= 4096) {
-				terminal_print("Editor buffer full.\n");
-				continue;
-			}
-            total_len += line_len;
-            edit_buffer[total_len++] = '\n';
+        else if (c == '\b') {
+            if (line_idx > 0) line_idx--;
+        } 
+        else if (line_idx < 255 && c >= 32) {
+            line_tmp[line_idx++] = c;
         }
     }
 
-    //write the buffer to the VFS
-    //chck if the file already exists in the RAMDisk
-    vfs_node_t* existing_file = vfs_find(vfs_root, filename);
-
-    if (existing_file != NULL) {
-        //llocate permanent heap memory for the new file data
-        char* permanent_storage = (char*)malloc(total_len);
-        memcpy(permanent_storage, edit_buffer, total_len);
-
-        //overwrite old file pointer and length
-        if (existing_file->ptr != NULL)
-			free(existing_file->ptr);
-
-		existing_file->ptr = (void*)permanent_storage;
-        existing_file->length = total_len;
-        
-        terminal_print("Existing file overwritten and saved.\n");
-    } else {
-        //if it doesnt exist create it normally
-        vfs_create(filename, edit_buffer, total_len);
-        terminal_print("New file created and saved to RAMDisk.\n");
-    }
-
+    terminal_clear();
+    terminal_print("Saving to FAT32...\n");
+    fat32_write_file(filename, edit_buffer, total_len);
     free(edit_buffer);
 }
+
 
 char* shell_readline() {
     shell_is_blocking = true;
     int index = 0;
 
-    // Zero out the buffer
+    //zero out the buffer
     for(int i = 0; i < 256; i++) line_buffer[i] = 0;
 
     char_available = false; 
@@ -957,29 +955,28 @@ char* shell_readline() {
 
             if (c == '\n') {
                 line_buffer[index] = '\0';
-                terminal_print("\n"); // Newline is safe for terminal_print
+                terminal_print("\n"); //newline is safe for terminal_print
                 shell_is_blocking = false;
                 return line_buffer;
             } 
             // === BACKSPACE FIX ===
             else if (c == '\b' && index > 0) {
-                index--; // Remove from your string
+                index--; //remove from your string
                 
-                // Manually erase from the VGA screen
+                //manually erase from the VGA screen
                 terminal_index--;
                 terminal_buffer[terminal_index] = (uint16_t)' ' | (uint16_t)current_color << 8;
                 update_cursor(terminal_index);
-            } 
-            // === TYPING FIX (Including Capitals) ===
+            }
             else if (index < 254 && c >= 32) {
-                line_buffer[index++] = c; // Add to your string
+                line_buffer[index++] = c; //add to your string
                 
                 // Write directly to VGA screen bypassing terminal_print
                 terminal_buffer[terminal_index++] = (uint16_t)c | (uint16_t)current_color << 8;
                 update_cursor(terminal_index);
             }
         }
-        // Keep the CPU resting slightly so it doesn't overheat
+        //keep the CPU resting slightly so it doesnt overheat
         asm volatile("pause"); 
     }
     return line_buffer;

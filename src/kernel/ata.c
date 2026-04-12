@@ -17,15 +17,6 @@
 #define ATA_SR_BSY 0x80
 #define ATA_SR_DRQ 0x08
 
-static void ata_wait()
-{
-    for(int i = 0; i < 100000; i++)
-    {
-        if(!(inb(ATA_STATUS) & ATA_SR_BSY))
-            return;
-    }
-}
-
 void ata_init()
 {
 }
@@ -88,22 +79,44 @@ void ata_read_sector(uint32_t lba, uint8_t* buffer)
 
 void ata_write_sector(uint32_t lba, uint8_t* buffer)
 {
-    ata_wait();
+    uint8_t status;
+    int timeout = 1000000;
 
+    // Wait until not busy
+    while ((inb(ATA_STATUS) & ATA_SR_BSY) && timeout--);
+
+    // Select drive and LBA
     outb(ATA_HDDEVSEL, 0xE0 | ((lba >> 24) & 0xF));
     outb(ATA_SECCOUNT0, 1);
-
     outb(ATA_LBA0, (uint8_t)(lba));
     outb(ATA_LBA1, (uint8_t)(lba >> 8));
     outb(ATA_LBA2, (uint8_t)(lba >> 16));
 
+    // Send Write Command
     outb(ATA_COMMAND, ATA_CMD_WRITE);
 
-    ata_wait();
+    // CRITICAL FIX: Wait for the drive to explicitly request data (DRQ bit)
+    timeout = 1000000;
+    do {
+        status = inb(ATA_STATUS);
+    } while (!(status & ATA_SR_DRQ) && timeout--);
 
+    if (timeout <= 0) {
+        terminal_print("ATA Error: Write DRQ timeout\n");
+        return;
+    }
+
+    //blast the data into the drivess buffer
     for (int i = 0; i < 256; i++)
     {
         uint16_t data = buffer[i*2] | (buffer[i*2+1] << 8);
         outw(ATA_DATA, data);
     }
+
+    //send the Cache Flush command so the drive saves it physically right now
+    outb(ATA_COMMAND, 0xE7);
+    
+    //wait for the flush to finish
+    timeout = 1000000;
+    while ((inb(ATA_STATUS) & ATA_SR_BSY) && timeout--);
 }

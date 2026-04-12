@@ -79,33 +79,37 @@ void init_syscalls() {
 /*dispatcher bridge */ 
 void syscall_dispatcher(registers_t *regs) {
     switch (regs->eax) {
-        case 1: //SYS_PRINT
+        case 1: // SYS_PRINT
             terminal_print((char*)regs->ebx);
             break;
 
-        case 2: { //SYS_READ: ebx = filename, ecx = destination buffer
+        case 2: { // SYS_READ: ebx = filename, ecx = destination buffer
             char* name = (char*)regs->ebx;
             void* buffer = (void*)regs->ecx;
             vfs_node_t* file = vfs_find(vfs_root, name);
 
             if (file) {
-                //use your kernel memcpy to move data to the user buffer
                 memcpy(buffer, (void*)file->ptr, file->length);
-                regs->eax = file->length; // Return size read
+                regs->eax = file->length; // return size read
             } else {
-                regs->eax = 0; // File not found
+                regs->eax = 0; // file not found
             }
             break;
         }
 
-        case 3: { //SYS_WRITE: ebx = filename, ecx = data pointer
-			char* name = (char*)regs->ebx;
-			char* data = (char*)regs->ecx;
-			uint32_t size = regs->edx; // Assume size is passed in EDX
+        case 3: { // SYS_WRITE: ebx = filename, ecx = data pointer, edx = size
+            char* name = (char*)regs->ebx;
+            char* data = (char*)regs->ecx;
+            uint32_t size = regs->edx;
 
-			vfs_create(name, data, size);
-			break;
-		}
+            vfs_create(name, data, size);
+            regs->eax = 1;
+            break;
+        }
+
+        case 4: // SYS_EXIT
+            terminal_print("\n[Program exited]\n");
+            break;
 
         default:
             terminal_print("KalsangOS: Unknown Syscall\n");

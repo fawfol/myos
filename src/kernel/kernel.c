@@ -67,9 +67,9 @@ void kernel_main(uint32_t mboot_ptr) {
         }
     }
     terminal_print("\n");
-        
-    sleep(1);
+    terminal_print("STARTING KALSANG OS ...");
     
+   
     extern void init_mouse();
     init_mouse();
     

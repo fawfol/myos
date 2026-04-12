@@ -1,7 +1,8 @@
-#include <stdbool.h>
 #ifndef SHELL_H
 #define SHELL_H
 
+#include <stdint.h>
+#include <stdbool.h>
 
 void init_shell();
 void shell_handle_keypress(char c);
@@ -12,5 +13,7 @@ void terminal_clear();
 
 char* shell_readline();
 void shell_update();
+
+void run_kx_file(char* filename);
 
 #endif
