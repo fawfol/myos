@@ -14,14 +14,12 @@ mkdir -p tools
 as --32 src/user/hello.s -o obj/hello_user.o
 ld -m elf_i386 -N -e _start -Ttext 0x00000000 \
     obj/hello_user.o -o bin/hello.bin --oformat binary
-
 python3 tools/make_kx.py bin/hello.bin bin/hello.kx
 
-# assemble loader test
+# assemble loader
 as --32 src/user/loader.s -o obj/loader_user.o
 ld -m elf_i386 -N -e _start -Ttext 0x00000000 \
     obj/loader_user.o -o bin/loader.bin --oformat binary
-
 python3 tools/make_kx.py bin/loader.bin bin/loader.kx
 
 # === CREATE RAMDISK ===

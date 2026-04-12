@@ -85,7 +85,7 @@ void kernel_main(uint32_t mboot_ptr) {
 
     init_shell();
     
-    //check if GRUB loaded any modules (files)
+    // check if GRUB loaded any modules (files)
     if (mbi->flags & MULTIBOOT_FLAG_MODS && mbi->mods_count > 0) {
         multiboot_module_t* mod = (multiboot_module_t*)mbi->mods_addr;
         
@@ -93,7 +93,7 @@ void kernel_main(uint32_t mboot_ptr) {
         terminal_print_number(mod->mod_start);
         terminal_print("\n");
 
-        //check if there is actual data there ('ustar' magic string)
+        // check if there is actual data there ('ustar' magic string)
         char* magic = (char*)(mod->mod_start + 257); 
         if (magic[0] == 'u' && magic[1] == 's') {
             terminal_print("TAR magic present\n");
@@ -103,11 +103,13 @@ void kernel_main(uint32_t mboot_ptr) {
 
         init_ramdisk(mod->mod_start);
     }
+
+    terminal_print("KalsangOS> ");
     
     asm volatile("sti");
 
     while (1) {
-        shell_update(); //check if the user pressed enter
-        asm volatile("hlt"); //rest the CPU until the next interrupt
+        shell_update(); // check if the user pressed enter
+        asm volatile("hlt");
     }
 }

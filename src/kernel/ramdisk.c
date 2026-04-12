@@ -85,6 +85,7 @@ void init_ramdisk(uint32_t location) {
     terminal_print("RAMDisk loaded: ");
     terminal_print_number(node_count);
     terminal_print(" files\n");
+
 }
 
 void vfs_create(char* name, char* data, uint32_t size) {

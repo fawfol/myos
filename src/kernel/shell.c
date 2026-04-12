@@ -992,7 +992,7 @@ void init_shell() {
     terminal_print("[OK] Virtual Memory (Paging)\n");
     terminal_print("--------------------------------\n");
     
-    terminal_print("KalsangOS> ");
+   
 }
 
 void shell_update() {
