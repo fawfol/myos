@@ -2,7 +2,9 @@
 #include "idt.h"
 #include "shell.h"
 #include "memory.h"
-#include "vfs.h"    
+#include "vfs.h"   
+#include "timer.h"
+#include "io.h" 
 
 struct idt_entry_struct idt_entries[256];
 struct idt_ptr_struct   idt_ptr;
@@ -107,9 +109,23 @@ void syscall_dispatcher(registers_t *regs) {
             break;
         }
 
-        case 4:
+        case 4: { // SYS_EXIT
 			terminal_print("\n[Program exited]\n");
-			return;
+			break;
+		}
+
+		case 5: { // SYS_SLEEP: ebx = seconds
+			uint32_t seconds = regs->ebx;
+			sleep(seconds);
+			regs->eax = 1;
+			break;
+		}
+
+		case 6: { // SYS_BEEP
+			beep(750, 200);
+			regs->eax = 1;
+			break;
+		}
 
         default:
             terminal_print("KalsangOS: Unknown Syscall\n");

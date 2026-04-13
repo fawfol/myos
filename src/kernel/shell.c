@@ -6,6 +6,7 @@
 #include "vfs.h"
 #include "ata.h"
 #include "fat32.h"
+#include "kx.h"
 
 #define MAX_HISTORY 256
 
@@ -85,9 +86,6 @@ extern volatile bool char_available;
 extern volatile char last_char;
 extern volatile bool shell_is_blocking;
 
-void execute_command();
-void run_script(char* filename);
-void terminal_scroll();
 
 static char line_buffer[256];
 
@@ -386,6 +384,7 @@ void print_help() {
     terminal_print("  make_bin <file> - Convert raw hex string into an executable\n\n");
 	terminal_print("  mkhello <f> <m> - Build a .kx program that prints a message\n");
 	terminal_print("  mkfrom <s> <o>  - Build a .kx program from a source text file\n");
+	terminal_print("    source supports: print <msg>, sleep <sec>, beep\n");
 
     terminal_print("MEMORY & PROCESSES:\n");
     terminal_print("  memstat         - View total, used, and free Heap memory\n");
@@ -404,144 +403,160 @@ void print_help() {
     terminal_print("==================================================\n\n");
 }
 
-void create_print_kx(char* filename, char* message) {
+void compile_single_print_kx(char* filename, char* message) {
     if (!filename || !message || filename[0] == '\0' || message[0] == '\0') {
         terminal_print("Usage: mkhello <file> <message>\n");
         return;
     }
 
-    uint32_t msg_len = strlen(message) + 1;
-    uint32_t code_size = 27 + msg_len;
-    uint32_t total_size = 16 + code_size;
-
-    uint8_t* bin = (uint8_t*)malloc(total_size);
-    if (!bin) {
+    uint8_t* code = (uint8_t*)malloc(4096);
+    if (!code) {
         terminal_print("Error: Out of memory\n");
         return;
     }
 
-    memset(bin, 0, total_size);
+    uint32_t offset = 0;
+    offset += emit_print(code + offset, message);
+    offset += emit_exit(code + offset);
 
-    // KX header
-    ((uint32_t*)bin)[0] = 0x314B584B; // magic
-    ((uint32_t*)bin)[1] = 0;          // entry
-    ((uint32_t*)bin)[2] = code_size;  // code_size
-    ((uint32_t*)bin)[3] = 0;          // data_size
-
-    // Child code:
-    // call here
-    // pop esi
-    // lea disp32(%esi), ebx
-    // mov eax, 1
-    // int 0x80
-    // mov eax, 4
-    // int 0x80
-    // ret
-    uint8_t code_template[27] = {
-        0xE8, 0x00, 0x00, 0x00, 0x00,       // call here
-        0x5E,                               // pop esi
-        0x8D, 0x9E, 0x00, 0x00, 0x00, 0x00, // lea disp32(%esi), ebx
-        0xB8, 0x01, 0x00, 0x00, 0x00,       // mov eax, 1
-        0xCD, 0x80,                         // int 0x80
-        0xB8, 0x04, 0x00, 0x00, 0x00,       // mov eax, 4
-        0xCD, 0x80,                         // int 0x80
-        0xC3                                // ret
-    };
-
-    memcpy(bin + 16, code_template, 27);
-
-    // ESI points to code offset 5, message starts at code offset 27
-    uint32_t disp = (27 - 5);
-    memcpy(bin + 16 + 8, &disp, 4);
-
-    memcpy(bin + 16 + 27, message, msg_len);
-
-    vfs_node_t* existing = vfs_find(vfs_root, filename);
-    if (existing) {
-        void* new_data = malloc(total_size);
-        if (!new_data) {
-            free(bin);
-            terminal_print("Error: Out of memory\n");
-            return;
-        }
-
-        memcpy(new_data, bin, total_size);
-        existing->ptr = (vfs_node_t*)new_data;
-        existing->length = total_size;
-    } else {
-        vfs_create(filename, (char*)bin, total_size);
-    }
-
-    free(bin);
+    build_kx(filename, code, offset);
+    free(code);
 
     terminal_print("Built executable: ");
     terminal_print(filename);
     terminal_print("\n");
 }
 
-void create_print_kx_from_file(char* src_filename, char* out_filename) {
-    if (!src_filename || !out_filename || src_filename[0] == '\0' || out_filename[0] == '\0') {
-        terminal_print("Usage: mkfrom <source.txt> <output.kx>\n");
-        return;
-    }
+uint32_t emit_sleep(uint8_t* buf, uint32_t sec) {
+    uint8_t code[] = {
+        0xBB,0,0,0,0,    // ebx = sec
+        0xB8,5,0,0,0,    // eax = sleep
+        0xCD,0x80
+    };
+
+    memcpy(buf, code, sizeof(code));
+    memcpy(buf + 1, &sec, 4);
+
+    return sizeof(code);
+}
+
+uint32_t emit_beep(uint8_t* buf) {
+    uint8_t code[] = {
+        0xB8,6,0,0,0,
+        0xCD,0x80
+    };
+
+    memcpy(buf, code, sizeof(code));
+    return sizeof(code);
+}
+
+uint32_t emit_print(uint8_t* buf, char* msg) {
+    uint32_t len = strlen(msg) + 1;
+
+    uint8_t template[] = {
+        0xE8,0,0,0,0,        // call next
+        0x5E,                // pop esi
+        0x8D,0x9E,0,0,0,0,   // lea disp32(%esi), %ebx
+        0xB8,1,0,0,0,        // mov eax, 1
+        0xCD,0x80,           // int 0x80
+        0xE9,0,0,0,0         // jmp over message
+    };
+
+    memcpy(buf, template, sizeof(template));
+
+    // ESI points to address right after the CALL = offset 5
+    // message starts right after the whole template
+    uint32_t disp_to_msg = sizeof(template) - 5;
+    memcpy(buf + 8, &disp_to_msg, 4);
+
+    // relative jump is calculated from the address after the JMP instruction
+    // message starts at sizeof(template)
+    // next code starts at sizeof(template) + len
+    // so jump distance is exactly len
+    uint32_t jump_over_msg = len;
+    memcpy(buf + 20, &jump_over_msg, 4);
+
+    memcpy(buf + sizeof(template), msg, len);
+
+    return sizeof(template) + len;
+}
+
+uint32_t emit_exit(uint8_t* buf) {
+    uint8_t code[] = {
+        0xB8,4,0,0,0,
+        0xCD,0x80,
+        0xC3
+    };
+
+    memcpy(buf, code, sizeof(code));
+    return sizeof(code);
+}
+
+void build_kx(char* filename, uint8_t* code, uint32_t size) {
+    uint32_t total = sizeof(kx_header_t) + size;
+
+    uint8_t* bin = malloc(total);
+
+    ((uint32_t*)bin)[0] = KX_MAGIC;
+    ((uint32_t*)bin)[1] = 0;
+    ((uint32_t*)bin)[2] = size;
+    ((uint32_t*)bin)[3] = 0;
+
+    memcpy(bin + 16, code, size);
+
+    vfs_create(filename, (char*)bin, total);
+}
+
+void compile_kx_from_file(char* src_filename, char* out_filename) {
 
     vfs_node_t* src = vfs_find(vfs_root, src_filename);
     if (!src) {
-        terminal_print("Source file not found in RAMDisk/VFS.\n");
+        terminal_print("Source not found\n");
         return;
     }
 
-    if (src->length == 0) {
-        terminal_print("Source file is empty.\n");
-        return;
+    char* data = (char*)src->ptr;
+
+    uint8_t* code = (uint8_t*)malloc(4096);
+    uint32_t offset = 0;
+
+    char line[256];
+    int idx = 0;
+
+    for (uint32_t i = 0; i < src->length; i++) {
+        char c = data[i];
+
+        if (c == '\n' || i == src->length - 1) {
+
+            if (c != '\n') line[idx++] = c;
+            line[idx] = '\0';
+
+            if (strncmp(line, "print ", 6) == 0) {
+                char* msg = line + 6;
+                offset += emit_print(code + offset, msg);
+            }
+            else if (strncmp(line, "sleep ", 6) == 0) {
+                uint32_t sec = atoi(line + 6);
+                offset += emit_sleep(code + offset, sec);
+            }
+            else if (strcmp(line, "beep") == 0) {
+                offset += emit_beep(code + offset);
+            }
+
+            idx = 0;
+        }
+        else if (c != '\r') {
+            line[idx++] = c;
+        }
     }
 
-    char* raw = (char*)src->ptr;
-    uint32_t usable_len = src->length;
+    offset += emit_exit(code + offset);
 
-    while (usable_len > 0 &&
-          (raw[usable_len - 1] == '\n' ||
-           raw[usable_len - 1] == '\r' ||
-           raw[usable_len - 1] == '\0')) {
-        usable_len--;
-    }
+    // build KX
+    build_kx(out_filename, code, offset);
 
-    if (usable_len == 0) {
-        terminal_print("Source file has no printable content.\n");
-        return;
-    }
-
-    char* message = (char*)malloc(usable_len + 1);
-    if (!message) {
-        terminal_print("Error: Out of memory\n");
-        return;
-    }
-
-    memcpy(message, raw, usable_len);
-    message[usable_len] = '\0';
-
-	// ===== MINI LANGUAGE PARSER =====
-
-	if (strncmp(message, "print ", 6) == 0) {
-		char* actual_msg = message + 6;
-
-		if (actual_msg[0] == '\0') {
-		    terminal_print("Error: print needs a message\n");
-		    free(message);
-		    return;
-		}
-
-		create_print_kx(out_filename, actual_msg);
-	}
-	else {
-		terminal_print("Unknown instruction. Supported:\n");
-		terminal_print("  print <message>\n");
-	}	
-	
-    free(message);
+    free(code);
 }
-
-
 
 // === SHELL LOGIC ===
 void execute_command() {
@@ -1010,7 +1025,7 @@ void execute_command() {
 		    goto done;
 		}
 
-		create_print_kx(filename, message);
+		compile_single_print_kx(filename, message);
 	}
 		
 	else if (strncmp(key_buffer, "mkfrom ", 7) == 0) {
@@ -1031,7 +1046,7 @@ void execute_command() {
 		    goto done;
 		}
 
-		create_print_kx_from_file(src_filename, out_filename);
+		compile_kx_from_file(src_filename, out_filename);
 	}
 		
 	else {
@@ -1078,72 +1093,118 @@ void shell_cmd_edit(char* filename) {
     }
 
     char* edit_buffer = (char*)malloc(4096);
+    if (!edit_buffer) {
+        terminal_print("Error: Out of memory\n");
+        return;
+    }
+
     memset(edit_buffer, 0, 4096);
-    uint32_t total_len = fat32_get_file_data(filename, edit_buffer);
-    
+
+    // 1) Try VFS/RAMDisk first
+    uint32_t total_len = 0;
+    vfs_node_t* file = vfs_find(vfs_root, filename);
+    if (file) {
+        if (file->length >= 4095) total_len = 4095;
+        else total_len = file->length;
+
+        memcpy(edit_buffer, (char*)file->ptr, total_len);
+        edit_buffer[total_len] = '\0';
+    } else {
+        // 2) Fallback to FAT32
+        total_len = fat32_get_file_data(filename, edit_buffer);
+        if (total_len >= 4095) total_len = 4095;
+        edit_buffer[total_len] = '\0';
+    }
+
     bool editing = true;
     char line_tmp[256];
     int line_idx = 0;
 
     while (editing) {
         terminal_clear();
-        terminal_print("--- KalsangOS Visual Editor: ");
+        terminal_print("--- KalsangOS Editor: ");
         terminal_print(filename);
-        terminal_print(" ---\n");
-        terminal_print(edit_buffer); 
-        
+        terminal_print(" ---\n\n");
+
+        terminal_print(edit_buffer);
         terminal_print("\n> ");
         line_tmp[line_idx] = '\0';
         terminal_print(line_tmp);
-        
-        // Status bar at the very bottom
-        uint32_t current_idx = terminal_index;
-        terminal_index = 24 * 80; 
-        terminal_print("^S: Save and Exit | ^X: Exit (No Save)");
-        terminal_index = current_idx;
+
+        // simple status/help line
+        uint32_t saved_index = terminal_index;
+        terminal_index = 24 * 80;
+        terminal_print("/save = save and exit | /exit = exit | /undo = delete last line");
+        terminal_index = saved_index;
         update_cursor(terminal_index);
 
-        char_available = false;
-        while(!char_available) { asm volatile("hlt"); }
-        
-        char c = last_char;
-        char_available = false;
+        char* input = shell_readline();
 
-        // --- CTRL KEY DETECTION ---
-        if (c == 24) { // CTRL + X
+        if (strcmp(input, "/exit") == 0) {
             free(edit_buffer);
             terminal_clear();
             terminal_print("Exited without saving.\n");
             return;
         }
-        else if (c == 19) { // CTRL + S
-            editing = false; // Break loop to save
+
+        if (strcmp(input, "/save") == 0) {
+            editing = false;
+            break;
         }
-        else if (c == '\n') {
-            line_tmp[line_idx] = '\0';
-            uint32_t len = strlen(line_tmp);
-            if (total_len + len + 1 < 4096) {
-                memcpy(edit_buffer + total_len, line_tmp, len);
-                total_len += len;
-                edit_buffer[total_len++] = '\n';
-                edit_buffer[total_len] = '\0';
-            }
-            line_idx = 0;
-        } 
-        else if (c == '\b') {
-            if (line_idx > 0) line_idx--;
-        } 
-        else if (line_idx < 255 && c >= 32) {
-            line_tmp[line_idx++] = c;
+        if (strcmp(input, "/undo") == 0) {
+			if (total_len == 0) {
+				continue;
+			}
+
+			// remove trailing newline if present
+			if (total_len > 0 && edit_buffer[total_len - 1] == '\n') {
+				total_len--;
+			}
+
+			// walk backward to previous newline
+			while (total_len > 0 && edit_buffer[total_len - 1] != '\n') {
+				total_len--;
+			}
+
+			edit_buffer[total_len] = '\0';
+			continue;
+		}
+
+        uint32_t len = strlen(input);
+        if (total_len + len + 1 >= 4095) {
+            terminal_print("\nEditor buffer full.\n");
+            sleep(1);
+            continue;
         }
+
+        memcpy(edit_buffer + total_len, input, len);
+        total_len += len;
+        edit_buffer[total_len++] = '\n';
+        edit_buffer[total_len] = '\0';
     }
 
     terminal_clear();
-    terminal_print("Saving to FAT32...\n");
+    terminal_print("Saving...\n");
+
+    // Save to FAT32
     fat32_write_file(filename, edit_buffer, total_len);
+
+    //also refresh/create VFS copy so editor + compiler can see latest content immediately
+    vfs_node_t* existing = vfs_find(vfs_root, filename);
+    if (existing) {
+        void* new_copy = malloc(total_len + 1);
+        if (new_copy) {
+            memcpy(new_copy, edit_buffer, total_len);
+            ((char*)new_copy)[total_len] = '\0';
+            existing->ptr = (vfs_node_t*)new_copy;
+            existing->length = total_len;
+        }
+    } else {
+        vfs_create(filename, edit_buffer, total_len);
+    }
+
     free(edit_buffer);
 }
-
 
 char* shell_readline() {
     shell_is_blocking = true;
