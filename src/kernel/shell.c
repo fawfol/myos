@@ -378,7 +378,7 @@ void print_help() {
     terminal_print("  catram <file>   - Read a text file from the RAMDisk\n");
     terminal_print("  edit <file>     - Open the text editor to create/modify a file\n\n");
     terminal_print("  rm <file>       - delete a file from the FAT32 disk\n");
-    terminal_print("  wrtie <file>    - write a file program that prints a message\n");
+    terminal_print("  write <file>    - create a file in RAMDisk\n");
 
     terminal_print("EXECUTION & SCRIPTING:\n");
     terminal_print("  run <file>      - Execute a compiled machine-code binary\n");
@@ -422,11 +422,21 @@ void create_print_kx(char* filename, char* message) {
 
     memset(bin, 0, total_size);
 
-    ((uint32_t*)bin)[0] = 0x314B584B; // KX magic
+    // KX header
+    ((uint32_t*)bin)[0] = 0x314B584B; // magic
     ((uint32_t*)bin)[1] = 0;          // entry
     ((uint32_t*)bin)[2] = code_size;  // code_size
     ((uint32_t*)bin)[3] = 0;          // data_size
 
+    // Child code:
+    // call here
+    // pop esi
+    // lea disp32(%esi), ebx
+    // mov eax, 1
+    // int 0x80
+    // mov eax, 4
+    // int 0x80
+    // ret
     uint8_t code_template[27] = {
         0xE8, 0x00, 0x00, 0x00, 0x00,       // call here
         0x5E,                               // pop esi
@@ -440,8 +450,8 @@ void create_print_kx(char* filename, char* message) {
 
     memcpy(bin + 16, code_template, 27);
 
-    // message starts at code offset 27, ESI points to offset 5
-    uint32_t disp = 22;
+    // ESI points to code offset 5, message starts at code offset 27
+    uint32_t disp = (27 - 5);
     memcpy(bin + 16 + 8, &disp, 4);
 
     memcpy(bin + 16 + 27, message, msg_len);
@@ -487,9 +497,12 @@ void create_print_kx_from_file(char* src_filename, char* out_filename) {
     }
 
     char* raw = (char*)src->ptr;
-
     uint32_t usable_len = src->length;
-    while (usable_len > 0 && (raw[usable_len - 1] == '\n' || raw[usable_len - 1] == '\r' || raw[usable_len - 1] == '\0')) {
+
+    while (usable_len > 0 &&
+          (raw[usable_len - 1] == '\n' ||
+           raw[usable_len - 1] == '\r' ||
+           raw[usable_len - 1] == '\0')) {
         usable_len--;
     }
 
@@ -507,9 +520,27 @@ void create_print_kx_from_file(char* src_filename, char* out_filename) {
     memcpy(message, raw, usable_len);
     message[usable_len] = '\0';
 
-    create_print_kx(out_filename, message);
+	// ===== MINI LANGUAGE PARSER =====
+
+	if (strncmp(message, "print ", 6) == 0) {
+		char* actual_msg = message + 6;
+
+		if (actual_msg[0] == '\0') {
+		    terminal_print("Error: print needs a message\n");
+		    free(message);
+		    return;
+		}
+
+		create_print_kx(out_filename, actual_msg);
+	}
+	else {
+		terminal_print("Unknown instruction. Supported:\n");
+		terminal_print("  print <message>\n");
+	}	
+	
     free(message);
 }
+
 
 
 // === SHELL LOGIC ===
