@@ -492,6 +492,32 @@ uint32_t emit_exit(uint8_t* buf) {
     return sizeof(code);
 }
 
+uint32_t emit_print_num(uint8_t* buf, uint32_t value) {
+    char num_str[16];
+    int i = 0;
+
+    if (value == 0) {
+        num_str[i++] = '0';
+    } else {
+        char temp[16];
+        int j = 0;
+
+        while (value > 0) {
+            temp[j++] = (value % 10) + '0';
+            value /= 10;
+        }
+
+        while (j > 0) {
+            num_str[i++] = temp[--j];
+        }
+    }
+
+    num_str[i] = '\0';
+
+    // reuse print emitter
+    return emit_print(buf, num_str);
+}
+
 void build_kx(char* filename, uint8_t* code, uint32_t size) {
     uint32_t total = sizeof(kx_header_t) + size;
 
@@ -507,7 +533,57 @@ void build_kx(char* filename, uint8_t* code, uint32_t size) {
     vfs_create(filename, (char*)bin, total);
 }
 
+///// helpers
+
+typedef struct {
+    char name[32];
+    uint32_t value;
+} kx_var_t;
+
+int is_number(char* s) {
+    if (!s || s[0] == '\0') return 0;
+
+    for (int i = 0; s[i] != '\0'; i++) {
+        if (s[i] < '0' || s[i] > '9') return 0;
+    }
+    return 1;
+}
+
+int find_var(kx_var_t* vars, int var_count, char* name) {
+    for (int i = 0; i < var_count; i++) {
+        if (strcmp(vars[i].name, name) == 0) {
+            return i;
+        }
+    }
+    return -1;
+}
+
+void set_var(kx_var_t* vars, int* var_count, char* name, uint32_t value) {
+    int idx = find_var(vars, *var_count, name);
+
+    if (idx >= 0) {
+        vars[idx].value = value;
+        return;
+    }
+
+    if (*var_count < 64) {
+        memset(vars[*var_count].name, 0, 32);
+
+        uint32_t len = strlen(name);
+        if (len > 31) len = 31;
+
+        memcpy(vars[*var_count].name, name, len);
+        vars[*var_count].name[len] = '\0';
+
+        vars[*var_count].value = value;
+        (*var_count)++;
+    }
+}
+
 void compile_kx_from_file(char* src_filename, char* out_filename) {
+	
+	kx_var_t vars[64];
+	int var_count = 0;
 
     vfs_node_t* src = vfs_find(vfs_root, src_filename);
     if (!src) {
@@ -531,17 +607,118 @@ void compile_kx_from_file(char* src_filename, char* out_filename) {
             if (c != '\n') line[idx++] = c;
             line[idx] = '\0';
 
-            if (strncmp(line, "print ", 6) == 0) {
-                char* msg = line + 6;
-                offset += emit_print(code + offset, msg);
-            }
-            else if (strncmp(line, "sleep ", 6) == 0) {
-                uint32_t sec = atoi(line + 6);
-                offset += emit_sleep(code + offset, sec);
-            }
-            else if (strcmp(line, "beep") == 0) {
-                offset += emit_beep(code + offset);
-            }
+			// 🔹 let x 5
+			if (strncmp(line, "let ", 4) == 0) {
+				char* name = line + 4;
+				char* value_str = 0;
+
+				for (int j = 0; name[j] != '\0'; j++) {
+					if (name[j] == ' ') {
+						name[j] = '\0';
+						value_str = &name[j + 1];
+						break;
+					}
+				}
+
+				if (!value_str || !is_number(value_str)) {
+					terminal_print("Compiler Error: Invalid let syntax\n");
+					continue;
+				}
+
+				uint32_t val = atoi(value_str);
+				set_var(vars, &var_count, name, val);
+			}
+			
+			// 🔹 math funcitons
+			else if (strncmp(line, "add ", 4) == 0) {
+				char* name = line + 4;
+				char* value_str = 0;
+
+				for (int j = 0; name[j] != '\0'; j++) {
+					if (name[j] == ' ') {
+						name[j] = '\0';
+						value_str = &name[j + 1];
+						break;
+					}
+				}
+
+				if (!value_str || !is_number(value_str)) {
+					terminal_print("Compiler Error: Invalid add syntax\n");
+					continue;
+				}
+
+				int idx = find_var(vars, var_count, name);
+				if (idx < 0) {
+					terminal_print("Compiler Error: Unknown variable\n");
+					continue;
+				}
+
+				vars[idx].value += atoi(value_str);
+			}
+			else if (strncmp(line, "sub ", 4) == 0) {
+				char* name = line + 4;
+				char* value_str = 0;
+
+				for (int j = 0; name[j] != '\0'; j++) {
+					if (name[j] == ' ') {
+						name[j] = '\0';
+						value_str = &name[j + 1];
+						break;
+					}
+				}
+
+				if (!value_str || !is_number(value_str)) {
+					terminal_print("Compiler Error: Invalid sub syntax\n");
+					continue;
+				}
+
+				int idx = find_var(vars, var_count, name);
+				if (idx < 0) {
+					terminal_print("Compiler Error: Unknown variable\n");
+					continue;
+				}
+
+				vars[idx].value -= atoi(value_str);
+			}
+
+			// 🔹 print Hello
+			else if (strncmp(line, "print ", 6) == 0) {
+				char* arg = line + 6;
+
+				// check if it's a variable
+				int idx = find_var(vars, var_count, arg);
+
+				if (idx >= 0) {
+					offset += emit_print_num(code + offset, vars[idx].value);
+				} else {
+					offset += emit_print(code + offset, arg);
+				}
+			}
+
+			// 🔹 sleep 2 OR sleep x
+			else if (strncmp(line, "sleep ", 6) == 0) {
+				char* arg = line + 6;
+
+				uint32_t sec = 0;
+
+				if (is_number(arg)) {
+					sec = atoi(arg);
+				} else {
+					int idx = find_var(vars, var_count, arg);
+					if (idx < 0) {
+						terminal_print("Compiler Error: Unknown variable\n");
+						continue;
+					}
+					sec = vars[idx].value;
+				}
+
+				offset += emit_sleep(code + offset, sec);
+			}
+
+			// 🔹 beep
+			else if (strcmp(line, "beep") == 0) {
+				offset += emit_beep(code + offset);
+			}
 
             idx = 0;
         }
