@@ -378,11 +378,14 @@ void print_help() {
     terminal_print("  catram <file>   - Read a text file from the RAMDisk\n");
     terminal_print("  edit <file>     - Open the text editor to create/modify a file\n\n");
     terminal_print("  rm <file>       - delete a file from the FAT32 disk\n");
+    terminal_print("  wrtie <file>    - write a file program that prints a message\n");
 
     terminal_print("EXECUTION & SCRIPTING:\n");
     terminal_print("  run <file>      - Execute a compiled machine-code binary\n");
     terminal_print("  run_script <f>  - Execute a plain-text KalsangOS script\n");
     terminal_print("  make_bin <file> - Convert raw hex string into an executable\n\n");
+	terminal_print("  mkhello <f> <m> - Build a .kx program that prints a message\n");
+	terminal_print("  mkfrom <s> <o>  - Build a .kx program from a source text file\n");
 
     terminal_print("MEMORY & PROCESSES:\n");
     terminal_print("  memstat         - View total, used, and free Heap memory\n");
@@ -399,6 +402,113 @@ void print_help() {
     terminal_print("  malloc          - Test dynamic heap memory allocation\n");
 
     terminal_print("==================================================\n\n");
+}
+
+void create_print_kx(char* filename, char* message) {
+    if (!filename || !message || filename[0] == '\0' || message[0] == '\0') {
+        terminal_print("Usage: mkhello <file> <message>\n");
+        return;
+    }
+
+    uint32_t msg_len = strlen(message) + 1;
+    uint32_t code_size = 27 + msg_len;
+    uint32_t total_size = 16 + code_size;
+
+    uint8_t* bin = (uint8_t*)malloc(total_size);
+    if (!bin) {
+        terminal_print("Error: Out of memory\n");
+        return;
+    }
+
+    memset(bin, 0, total_size);
+
+    ((uint32_t*)bin)[0] = 0x314B584B; // KX magic
+    ((uint32_t*)bin)[1] = 0;          // entry
+    ((uint32_t*)bin)[2] = code_size;  // code_size
+    ((uint32_t*)bin)[3] = 0;          // data_size
+
+    uint8_t code_template[27] = {
+        0xE8, 0x00, 0x00, 0x00, 0x00,       // call here
+        0x5E,                               // pop esi
+        0x8D, 0x9E, 0x00, 0x00, 0x00, 0x00, // lea disp32(%esi), ebx
+        0xB8, 0x01, 0x00, 0x00, 0x00,       // mov eax, 1
+        0xCD, 0x80,                         // int 0x80
+        0xB8, 0x04, 0x00, 0x00, 0x00,       // mov eax, 4
+        0xCD, 0x80,                         // int 0x80
+        0xC3                                // ret
+    };
+
+    memcpy(bin + 16, code_template, 27);
+
+    // message starts at code offset 27, ESI points to offset 5
+    uint32_t disp = 22;
+    memcpy(bin + 16 + 8, &disp, 4);
+
+    memcpy(bin + 16 + 27, message, msg_len);
+
+    vfs_node_t* existing = vfs_find(vfs_root, filename);
+    if (existing) {
+        void* new_data = malloc(total_size);
+        if (!new_data) {
+            free(bin);
+            terminal_print("Error: Out of memory\n");
+            return;
+        }
+
+        memcpy(new_data, bin, total_size);
+        existing->ptr = (vfs_node_t*)new_data;
+        existing->length = total_size;
+    } else {
+        vfs_create(filename, (char*)bin, total_size);
+    }
+
+    free(bin);
+
+    terminal_print("Built executable: ");
+    terminal_print(filename);
+    terminal_print("\n");
+}
+
+void create_print_kx_from_file(char* src_filename, char* out_filename) {
+    if (!src_filename || !out_filename || src_filename[0] == '\0' || out_filename[0] == '\0') {
+        terminal_print("Usage: mkfrom <source.txt> <output.kx>\n");
+        return;
+    }
+
+    vfs_node_t* src = vfs_find(vfs_root, src_filename);
+    if (!src) {
+        terminal_print("Source file not found in RAMDisk/VFS.\n");
+        return;
+    }
+
+    if (src->length == 0) {
+        terminal_print("Source file is empty.\n");
+        return;
+    }
+
+    char* raw = (char*)src->ptr;
+
+    uint32_t usable_len = src->length;
+    while (usable_len > 0 && (raw[usable_len - 1] == '\n' || raw[usable_len - 1] == '\r' || raw[usable_len - 1] == '\0')) {
+        usable_len--;
+    }
+
+    if (usable_len == 0) {
+        terminal_print("Source file has no printable content.\n");
+        return;
+    }
+
+    char* message = (char*)malloc(usable_len + 1);
+    if (!message) {
+        terminal_print("Error: Out of memory\n");
+        return;
+    }
+
+    memcpy(message, raw, usable_len);
+    message[usable_len] = '\0';
+
+    create_print_kx(out_filename, message);
+    free(message);
 }
 
 
@@ -502,13 +612,7 @@ void execute_command() {
         terminal_print_number(seconds);
         terminal_print(" seconds\n");
     } 
-    /*
-    else if (strcmp(key_buffer, "reboot") == 0) {
-        terminal_print("Rebooting KalsangOS...\n");
-        outb(0x64, 0xFE);
-        asm volatile("cli");
-        asm volatile("hlt");
-    } */
+    
     // === POWER COMMANDS ===
     else if (strcmp(key_buffer, "reboot") == 0) {
         reboot();
@@ -591,15 +695,23 @@ void execute_command() {
     
     // === LS comd ===
     else if (strcmp(key_buffer, "lsram") == 0) {
-		terminal_print("Files in RAMDisk:\n");
-		for (int i = 0; i < node_count; i++) {
+		terminal_print("Files in RAMDisk/VFS:\n");
+
+		vfs_node_t* current = vfs_root;
+		int found = 0;
+
+		while (current != NULL) {
 		    terminal_print("- ");
-		    terminal_print(ramdisk_nodes[i].name);
+		    terminal_print(current->name);
 		    terminal_print(" (");
-		    terminal_print_number(ramdisk_nodes[i].length);
+		    terminal_print_number(current->length);
 		    terminal_print(" bytes)\n");
+
+		    current = current->next;
+		    found++;
 		}
-		if (node_count == 0) {
+
+		if (found == 0) {
 		    terminal_print("RAMDisk empty.\n");
 		}
 	}
@@ -608,28 +720,24 @@ void execute_command() {
         fat32_list_root();
     }
 	// === cat ===
-	else if (strncmp(key_buffer, "catram ", 4) == 0) {
-		const char* filename = key_buffer + 4;
-		bool found = false;
+	else if (strncmp(key_buffer, "catram ", 7) == 0) {
+		char* filename = key_buffer + 7;
 
-		for (int i = 0; i < node_count; i++) {
-		    if (strcmp(ramdisk_nodes[i].name, filename) == 0) {
-		        char* file_data = (char*)ramdisk_nodes[i].ptr;
-		        
-		        for (uint32_t j = 0; j < ramdisk_nodes[i].length; j++) {
-		            //creating a tiny string to print char by char
-		            char buf[2] = {file_data[j], '\0'};
-		            terminal_print(buf);
-		        }
-		        terminal_print("\n");
-		        found = true;
-		        break;
-		    }
-		}
-		if (!found) {
+		vfs_node_t* file = vfs_find(vfs_root, filename);
+
+		if (!file) {
 		    terminal_print("File not found.\n");
+		} else {
+		    char* file_data = (char*)file->ptr;
+
+		    for (uint32_t j = 0; j < file->length; j++) {
+		        char buf[2] = { file_data[j], '\0' };
+		        terminal_print(buf);
+		    }
+		    terminal_print("\n");
 		}
 	}
+
     else if (strncmp(key_buffer, "cat ", 4) == 0) {
         char* filename = key_buffer + 4;
         fat32_read_file(filename);
@@ -658,6 +766,32 @@ void execute_command() {
             terminal_print(out); 
         }
 		terminal_print("\n");
+	}
+	
+	// WRITE file
+	else if (strncmp(key_buffer, "write ", 6) == 0) {
+		char* args = key_buffer + 6;
+
+		// split filename and content
+		char* filename = args;
+		char* content = 0;
+
+		for (int i = 0; args[i] != '\0'; i++) {
+		    if (args[i] == ' ') {
+		        args[i] = '\0';
+		        content = &args[i + 1];
+		        break;
+		    }
+		}
+
+		if (!content) {
+		    terminal_print("Usage: write <file> <text>\n");
+		    goto done;
+		}
+
+		vfs_create(filename, content, strlen(content));
+
+		terminal_print("File created.\n");
 	}
 	else if (strncmp(key_buffer, "scan ", 5) == 0) {
 		char *addr_str = key_buffer + 5;
@@ -827,6 +961,48 @@ void execute_command() {
 		terminal_print("\n");
 	}
 	
+	else if (strncmp(key_buffer, "mkhello ", 8) == 0) {
+		char* args = key_buffer + 8;
+		char* filename = args;
+		char* message = 0;
+
+		for (int i = 0; args[i] != '\0'; i++) {
+		    if (args[i] == ' ') {
+		        args[i] = '\0';
+		        message = &args[i + 1];
+		        break;
+		    }
+		}
+
+		if (!message || filename[0] == '\0' || message[0] == '\0') {
+		    terminal_print("Usage: mkhello <file> <message>\n");
+		    goto done;
+		}
+
+		create_print_kx(filename, message);
+	}
+		
+	else if (strncmp(key_buffer, "mkfrom ", 7) == 0) {
+		char* args = key_buffer + 7;
+		char* src_filename = args;
+		char* out_filename = 0;
+
+		for (int i = 0; args[i] != '\0'; i++) {
+		    if (args[i] == ' ') {
+		        args[i] = '\0';
+		        out_filename = &args[i + 1];
+		        break;
+		    }
+		}
+
+		if (!out_filename || src_filename[0] == '\0' || out_filename[0] == '\0') {
+		    terminal_print("Usage: mkfrom <source.txt> <output.kx>\n");
+		    goto done;
+		}
+
+		create_print_kx_from_file(src_filename, out_filename);
+	}
+		
 	else {
         terminal_print("Unknown command: ");
         terminal_print(key_buffer);

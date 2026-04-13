@@ -1,25 +1,30 @@
 #include "kalsang_libc.h"
 
+static char buffer[256];
+static char filename[] = "test.txt";
+
 void _start() {
-    char* filename = "test.txt";
-    char buffer[128]; //small buffer to hold the file content
-    
-    print("User-Land: Attempting to read 'test.txt'...\n");
+    print("User-Land (C): Reading test.txt...\n");
 
-    //call Syscall 2 (SYS_READ)
-    int bytes_read = read_file(filename, buffer);
+    int bytes = read_file(filename, buffer);
 
-    if (bytes_read > 0) {
-        //ensure the string is null-terminated for printing
-        buffer[bytes_read] = '\0'; 
-        print("User-Land: File Content Follows:\n");
-        print("------------------------------\n");
+    if (bytes > 0) {
+        if (bytes >= 255) {
+            bytes = 255;
+        }
+
+        buffer[bytes] = '\0';
+
+        print("File content:\n");
+        print("------------------\n");
         print(buffer);
-        print("\n------------------------------\n");
+        print("\n------------------\n");
     } else {
-        print("User-Land Error: Could not read file.\n");
+        print("Error reading file\n");
     }
 
-    //retrn control to the OS (halt for now)
-    while(1);
+    exit();
+
+    // keep compiler happy in freestanding mode
+    for (;;);
 }

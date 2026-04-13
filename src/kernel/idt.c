@@ -107,9 +107,9 @@ void syscall_dispatcher(registers_t *regs) {
             break;
         }
 
-        case 4: // SYS_EXIT
-            terminal_print("\n[Program exited]\n");
-            break;
+        case 4:
+			terminal_print("\n[Program exited]\n");
+			return;
 
         default:
             terminal_print("KalsangOS: Unknown Syscall\n");
