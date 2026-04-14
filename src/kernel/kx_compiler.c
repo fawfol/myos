@@ -247,6 +247,26 @@ uint32_t emit_sleep_var(uint8_t* buf, uint32_t data_offset) {
     return sizeof(code);
 }
 
+uint32_t emit_cmp_zero(uint8_t* buf, uint32_t data_offset) {
+    // cmp dword ptr [edx+disp32], 0
+    buf[0] = 0x81;
+    buf[1] = 0xBA;
+    memcpy(buf + 2, &data_offset, 4);
+
+    uint32_t zero = 0;
+    memcpy(buf + 6, &zero, 4);
+
+    return 10;
+}
+
+uint32_t emit_je(uint8_t* buf, int32_t rel) {
+    // 0F 84 rel32
+    buf[0] = 0x0F;
+    buf[1] = 0x84;
+    memcpy(buf + 2, &rel, 4);
+    return 6;
+}
+
 uint32_t emit_jump(uint8_t* buf, int32_t rel) {
     buf[0] = 0xE9;
     memcpy(buf + 1, &rel, 4);
@@ -492,6 +512,27 @@ void compile_kx_from_file(char* src_filename, char* out_filename) {
             else if (strncmp(line, "jump ", 5) == 0) {
                 temp_offset += 5;
             }
+            
+            else if (strncmp(line, "ifzero ", 7) == 0) {
+                char* p = line + 7;
+
+                while (*p == ' ') p++;
+                char* varname = p;
+
+                while (*p != '\0' && *p != ' ') p++;
+
+                if (*p != '\0') {
+                    *p = '\0';
+                    p++;
+
+                    while (*p == ' ') p++;
+                    char* label = p;
+
+                    if (varname[0] != '\0' && label[0] != '\0') {
+                        temp_offset += 10 + 6; // cmp + je
+                    }
+                }
+            }
 
             idx = 0;
         } else if (c != '\r') {
@@ -701,6 +742,52 @@ void compile_kx_from_file(char* src_filename, char* out_filename) {
 
                 int32_t rel = (int32_t)labels[label_idx].offset - (int32_t)(offset + 5);
                 offset += emit_jump(code + offset, rel);
+            }
+            
+            else if (strncmp(line, "ifzero ", 7) == 0) {
+                char* p = line + 7;
+
+                while (*p == ' ') p++;
+                char* varname = p;
+
+                while (*p != '\0' && *p != ' ') p++;
+
+                if (*p == '\0') {
+                    terminal_print("Compiler Error: Invalid ifzero syntax\n");
+                    idx = 0;
+                    continue;
+                }
+
+                *p = '\0';
+                p++;
+
+                while (*p == ' ') p++;
+                char* label = p;
+
+                if (varname[0] == '\0' || label[0] == '\0') {
+                    terminal_print("Compiler Error: Invalid ifzero syntax\n");
+                    idx = 0;
+                    continue;
+                }
+
+                int var_idx = find_var(vars, var_count, varname);
+                if (var_idx < 0) {
+                    terminal_print("Compiler Error: Unknown variable\n");
+                    idx = 0;
+                    continue;
+                }
+
+                int label_idx = find_label(labels, label_count, label);
+                if (label_idx < 0) {
+                    terminal_print("Compiler Error: Unknown label\n");
+                    idx = 0;
+                    continue;
+                }
+
+                offset += emit_cmp_zero(code + offset, vars[var_idx].data_offset);
+
+                int32_t rel = (int32_t)labels[label_idx].offset - (int32_t)(offset + 6);
+                offset += emit_je(code + offset, rel);
             }
 
             // beep
