@@ -31,11 +31,17 @@ void run_kx_file(char* filename) {
         return;
     }
 
-    uint8_t* file_data = (uint8_t*)file->ptr + sizeof(kx_header_t);
+    uint8_t* src = (uint8_t*)file->ptr + sizeof(kx_header_t);
+    uint8_t* dst = (uint8_t*)mem;
 
-    memcpy(mem, file_data, header->code_size);
+    // copy code section
+    memcpy(dst, src, header->code_size);
 
-    //entry point
+    // copy data section
+    if (header->data_size > 0) {
+        memcpy(dst + header->code_size, src + header->code_size, header->data_size);
+    }
+
     typedef void (*entry_t)();
     entry_t entry = (entry_t)((uint32_t)mem + header->entry);
 

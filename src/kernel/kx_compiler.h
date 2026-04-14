@@ -11,6 +11,12 @@ uint32_t emit_print_num(uint8_t* buf, uint32_t value);
 uint32_t emit_sleep(uint8_t* buf, uint32_t sec);
 uint32_t emit_beep(uint8_t* buf);
 uint32_t emit_exit(uint8_t* buf);
-void build_kx(char* filename, uint8_t* code, uint32_t size);
+void build_kx(char* filename, uint8_t* code, uint32_t code_size, uint8_t* data, uint32_t data_size);
 
+uint32_t emit_prologue(uint8_t* buf, uint32_t code_size);
+uint32_t emit_store_imm(uint8_t* buf, uint32_t data_offset, uint32_t value);
+uint32_t emit_add_imm(uint8_t* buf, uint32_t data_offset, uint32_t value);
+uint32_t emit_sub_imm(uint8_t* buf, uint32_t data_offset, uint32_t value);
+uint32_t emit_print_var(uint8_t* buf, uint32_t data_offset);
+uint32_t emit_sleep_var(uint8_t* buf, uint32_t data_offset);
 #endif

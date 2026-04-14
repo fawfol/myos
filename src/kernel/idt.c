@@ -126,6 +126,11 @@ void syscall_dispatcher(registers_t *regs) {
 			regs->eax = 1;
 			break;
 		}
+		case 7: { // SYS_PRINT_NUM: ebx = number
+            terminal_print_number(regs->ebx);
+            regs->eax = 1;
+            break;
+        }
 
         default:
             terminal_print("KalsangOS: Unknown Syscall\n");

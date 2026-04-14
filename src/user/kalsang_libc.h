@@ -3,6 +3,7 @@
 
 #include <stdint.h>
 
+#define SYS_PRINT_NUM 7
 #define SYS_PRINT 1
 #define SYS_READ  2
 #define SYS_WRITE 3

@@ -8,6 +8,7 @@
 typedef struct {
     char name[32];
     uint32_t value;
+    uint32_t data_offset;
 } kx_var_t;
 
 typedef struct {
@@ -85,6 +86,12 @@ void set_var(kx_var_t* vars, int* var_count, char* name, uint32_t value) {
     }
 }
 
+void assign_var_offsets(kx_var_t* vars, int var_count) {
+    for (int i = 0; i < var_count; i++) {
+        vars[i].data_offset = i * 4;
+    }
+}
+
 uint32_t emit_sleep(uint8_t* buf, uint32_t sec) {
     uint8_t code[] = {
         0xBB,0,0,0,0,
@@ -157,6 +164,89 @@ uint32_t emit_print_num(uint8_t* buf, uint32_t value) {
     return emit_print(buf, num_str);
 }
 
+uint32_t emit_prologue(uint8_t* buf, uint32_t code_size) {
+    (void)code_size;
+
+    // push ebx
+    // push esi
+    // push edi
+    // push ebp
+    // call next
+    // pop edx
+    // add edx, imm32   <-- patched later with (final_code_size - 9)
+    uint8_t code[] = {
+        0x53,                   // push ebx
+        0x56,                   // push esi
+        0x57,                   // push edi
+        0x55,                   // push ebp
+        0xE8, 0,0,0,0,          // call next
+        0x5A,                   // pop edx
+        0x81, 0xC2, 0,0,0,0     // add edx, imm32
+    };
+
+    memcpy(buf, code, sizeof(code));
+    return sizeof(code); // 16 bytes
+}
+
+uint32_t emit_store_imm(uint8_t* buf, uint32_t data_offset, uint32_t value) {
+    // mov dword ptr [edx+disp32], imm32
+    buf[0] = 0xC7;
+    buf[1] = 0x82;
+    memcpy(buf + 2, &data_offset, 4);
+    memcpy(buf + 6, &value, 4);
+    return 10;
+}
+
+uint32_t emit_add_imm(uint8_t* buf, uint32_t data_offset, uint32_t value) {
+    // add dword ptr [edx+disp32], imm32
+    buf[0] = 0x81;
+    buf[1] = 0x82;
+    memcpy(buf + 2, &data_offset, 4);
+    memcpy(buf + 6, &value, 4);
+    return 10;
+}
+
+uint32_t emit_sub_imm(uint8_t* buf, uint32_t data_offset, uint32_t value) {
+    // sub dword ptr [edx+disp32], imm32
+    buf[0] = 0x81;
+    buf[1] = 0xAA;
+    memcpy(buf + 2, &data_offset, 4);
+    memcpy(buf + 6, &value, 4);
+    return 10;
+}
+
+uint32_t emit_print_var(uint8_t* buf, uint32_t data_offset) {
+    // mov ebx, [edx+disp32]
+    // mov eax, 7
+    // int 0x80
+    uint8_t code[] = {
+        0x8B, 0x9A, 0,0,0,0,
+        0xB8, 0x07,0x00,0x00,0x00,
+        0xCD, 0x80
+    };
+
+    memcpy(buf, code, sizeof(code));
+    memcpy(buf + 2, &data_offset, 4);
+
+    return sizeof(code);
+}
+
+uint32_t emit_sleep_var(uint8_t* buf, uint32_t data_offset) {
+    // mov ebx, [edx+disp32]
+    // mov eax, 5
+    // int 0x80
+    uint8_t code[] = {
+        0x8B, 0x9A, 0,0,0,0,
+        0xB8, 0x05,0x00,0x00,0x00,
+        0xCD, 0x80
+    };
+
+    memcpy(buf, code, sizeof(code));
+    memcpy(buf + 2, &data_offset, 4);
+
+    return sizeof(code);
+}
+
 uint32_t emit_jump(uint8_t* buf, int32_t rel) {
     buf[0] = 0xE9;
     memcpy(buf + 1, &rel, 4);
@@ -165,17 +255,21 @@ uint32_t emit_jump(uint8_t* buf, int32_t rel) {
 
 uint32_t emit_exit(uint8_t* buf) {
     uint8_t code[] = {
-        0xB8,4,0,0,0,
-        0xCD,0x80,
-        0xC3
+        0xB8,4,0,0,0,   // mov eax, 4
+        0xCD,0x80,      // int 0x80
+        0x5D,           // pop ebp
+        0x5F,           // pop edi
+        0x5E,           // pop esi
+        0x5B,           // pop ebx
+        0xC3            // ret
     };
 
     memcpy(buf, code, sizeof(code));
-    return sizeof(code);
+    return sizeof(code); // 12 bytes
 }
 
-void build_kx(char* filename, uint8_t* code, uint32_t size) {
-    uint32_t total = sizeof(kx_header_t) + size;
+void build_kx(char* filename, uint8_t* code, uint32_t code_size, uint8_t* data, uint32_t data_size) {
+    uint32_t total = sizeof(kx_header_t) + code_size + data_size;
 
     uint8_t* bin = (uint8_t*)malloc(total);
     if (!bin) {
@@ -183,12 +277,17 @@ void build_kx(char* filename, uint8_t* code, uint32_t size) {
         return;
     }
 
-    ((uint32_t*)bin)[0] = KX_MAGIC;
-    ((uint32_t*)bin)[1] = 0;
-    ((uint32_t*)bin)[2] = size;
-    ((uint32_t*)bin)[3] = 0;
+    kx_header_t* header = (kx_header_t*)bin;
+    header->magic = KX_MAGIC;
+    header->entry = 0;
+    header->code_size = code_size;
+    header->data_size = data_size;
 
-    memcpy(bin + sizeof(kx_header_t), code, size);
+    memcpy(bin + sizeof(kx_header_t), code, code_size);
+
+    if (data_size > 0) {
+        memcpy(bin + sizeof(kx_header_t) + code_size, data, data_size);
+    }
 
     vfs_node_t* existing = vfs_find(vfs_root, filename);
     if (existing) {
@@ -198,6 +297,7 @@ void build_kx(char* filename, uint8_t* code, uint32_t size) {
             terminal_print("Compiler Error: Out of memory\n");
             return;
         }
+
         memcpy(new_copy, bin, total);
         existing->ptr = (vfs_node_t*)new_copy;
         existing->length = total;
@@ -224,7 +324,7 @@ void compile_single_print_kx(char* filename, char* message) {
     offset += emit_print(code + offset, message);
     offset += emit_exit(code + offset);
 
-    build_kx(filename, code, offset);
+    build_kx(filename, code, offset, 0, 0);
     free(code);
 
     terminal_print("Built executable: ");
@@ -262,7 +362,7 @@ void compile_kx_from_file(char* src_filename, char* out_filename) {
     // =========================
     // PASS 1: labels + sizes
     // =========================
-    uint32_t temp_offset = 0;
+    uint32_t temp_offset = 16;
     idx = 0;
 
     for (uint32_t i = 0; i < src->length; i++) {
@@ -300,10 +400,11 @@ void compile_kx_from_file(char* src_filename, char* out_filename) {
 
                     if (name[0] != '\0' && value_str[0] != '\0' && is_number(value_str)) {
                         set_var(vars, &var_count, name, str_to_uint(value_str));
+                        temp_offset += 10;
                     }
                 }
             }
-
+            
             // add
             else if (strncmp(line, "add ", 4) == 0) {
                 char* p = line + 4;
@@ -322,18 +423,9 @@ void compile_kx_from_file(char* src_filename, char* out_filename) {
 
                     int dst = find_var(vars, var_count, name);
                     if (dst >= 0) {
-                        uint32_t val = 0;
-
                         if (is_number(arg)) {
-                            val = str_to_uint(arg);
-                        } else {
-                            int src_idx = find_var(vars, var_count, arg);
-                            if (src_idx >= 0) {
-                                val = vars[src_idx].value;
-                            }
+                            temp_offset += 10;
                         }
-
-                        vars[dst].value += val;
                     }
                 }
             }
@@ -356,18 +448,9 @@ void compile_kx_from_file(char* src_filename, char* out_filename) {
 
                     int dst = find_var(vars, var_count, name);
                     if (dst >= 0) {
-                        uint32_t val = 0;
-
                         if (is_number(arg)) {
-                            val = str_to_uint(arg);
-                        } else {
-                            int src_idx = find_var(vars, var_count, arg);
-                            if (src_idx >= 0) {
-                                val = vars[src_idx].value;
-                            }
+                            temp_offset += 10;
                         }
-
-                        vars[dst].value -= val;
                     }
                 }
             }
@@ -379,26 +462,7 @@ void compile_kx_from_file(char* src_filename, char* out_filename) {
 
                 int var_idx = find_var(vars, var_count, msg);
                 if (var_idx >= 0) {
-                    char num_str[16];
-                    uint32_t value = vars[var_idx].value;
-                    int n = 0;
-
-                    if (value == 0) {
-                        num_str[n++] = '0';
-                    } else {
-                        char tmp[16];
-                        int t = 0;
-                        while (value > 0) {
-                            tmp[t++] = (value % 10) + '0';
-                            value /= 10;
-                        }
-                        while (t > 0) {
-                            num_str[n++] = tmp[--t];
-                        }
-                    }
-
-                    num_str[n] = '\0';
-                    temp_offset += 24 + strlen(num_str) + 1;
+                    temp_offset += 13;
                 } else {
                     temp_offset += 24 + strlen(msg) + 1;
                 }
@@ -406,7 +470,17 @@ void compile_kx_from_file(char* src_filename, char* out_filename) {
 
             // sleep
             else if (strncmp(line, "sleep ", 6) == 0) {
-                temp_offset += 12;
+                char* arg = line + 6;
+                while (*arg == ' ') arg++;
+
+                if (is_number(arg)) {
+                    temp_offset += 12;
+                } else {
+                    int var_idx = find_var(vars, var_count, arg);
+                    if (var_idx >= 0) {
+                        temp_offset += 13;
+                    }
+                }
             }
 
             // beep
@@ -426,14 +500,33 @@ void compile_kx_from_file(char* src_filename, char* out_filename) {
             }
         }
     }
+	    assign_var_offsets(vars, var_count);
+
+    uint32_t data_size = var_count * 4;
+    uint8_t* data_section = 0;
+
+    if (data_size > 0) {
+        data_section = (uint8_t*)malloc(data_size);
+        if (!data_section) {
+            free(code);
+            terminal_print("Error: Out of memory\n");
+            return;
+        }
+
+        memset(data_section, 0, data_size);
+
+        for (int i = 0; i < var_count; i++) {
+            memcpy(data_section + vars[i].data_offset, &vars[i].value, 4);
+        }
+    }
+
 
     // =========================
     // PASS 2: real codegen
     // =========================
-    memset(vars, 0, sizeof(vars));
-    var_count = 0;
     idx = 0;
     offset = 0;
+    offset += emit_prologue(code + offset, temp_offset);
 
     for (uint32_t i = 0; i < src->length; i++) {
         char c = data[i];
@@ -479,7 +572,14 @@ void compile_kx_from_file(char* src_filename, char* out_filename) {
                     continue;
                 }
 
-                set_var(vars, &var_count, name, str_to_uint(value_str));
+                int var_idx = find_var(vars, var_count, name);
+                if (var_idx < 0) {
+                    terminal_print("Compiler Error: Unknown variable\n");
+                    idx = 0;
+                    continue;
+                }
+
+                offset += emit_store_imm(code + offset, vars[var_idx].data_offset, str_to_uint(value_str));
             }
 
             // add
@@ -503,33 +603,20 @@ void compile_kx_from_file(char* src_filename, char* out_filename) {
                 while (*p == ' ') p++;
                 char* arg = p;
 
-                if (name[0] == '\0' || arg[0] == '\0') {
-                    terminal_print("Compiler Error: Invalid add syntax\n");
+                if (!is_number(arg)) {
+                    terminal_print("Compiler Error: add currently supports only numbers\n");
                     idx = 0;
                     continue;
                 }
 
-                int dst = find_var(vars, var_count, name);
-                if (dst < 0) {
+                int var_idx = find_var(vars, var_count, name);
+                if (var_idx < 0) {
                     terminal_print("Compiler Error: Unknown variable\n");
                     idx = 0;
                     continue;
                 }
 
-                uint32_t val = 0;
-                if (is_number(arg)) {
-                    val = str_to_uint(arg);
-                } else {
-                    int src_idx = find_var(vars, var_count, arg);
-                    if (src_idx < 0) {
-                        terminal_print("Compiler Error: Unknown variable\n");
-                        idx = 0;
-                        continue;
-                    }
-                    val = vars[src_idx].value;
-                }
-
-                vars[dst].value += val;
+                offset += emit_add_imm(code + offset, vars[var_idx].data_offset, str_to_uint(arg));
             }
 
             // sub
@@ -553,35 +640,21 @@ void compile_kx_from_file(char* src_filename, char* out_filename) {
                 while (*p == ' ') p++;
                 char* arg = p;
 
-                if (name[0] == '\0' || arg[0] == '\0') {
-                    terminal_print("Compiler Error: Invalid sub syntax\n");
+                if (!is_number(arg)) {
+                    terminal_print("Compiler Error: sub currently supports only numbers\n");
                     idx = 0;
                     continue;
                 }
 
-                int dst = find_var(vars, var_count, name);
-                if (dst < 0) {
+                int var_idx = find_var(vars, var_count, name);
+                if (var_idx < 0) {
                     terminal_print("Compiler Error: Unknown variable\n");
                     idx = 0;
                     continue;
                 }
 
-                uint32_t val = 0;
-                if (is_number(arg)) {
-                    val = str_to_uint(arg);
-                } else {
-                    int src_idx = find_var(vars, var_count, arg);
-                    if (src_idx < 0) {
-                        terminal_print("Compiler Error: Unknown variable\n");
-                        idx = 0;
-                        continue;
-                    }
-                    val = vars[src_idx].value;
-                }
-
-                vars[dst].value -= val;
+                offset += emit_sub_imm(code + offset, vars[var_idx].data_offset, str_to_uint(arg));
             }
-
             // print
             else if (strncmp(line, "print ", 6) == 0) {
                 char* arg = line + 6;
@@ -590,7 +663,7 @@ void compile_kx_from_file(char* src_filename, char* out_filename) {
                 int var_idx = find_var(vars, var_count, arg);
 
                 if (var_idx >= 0) {
-                    offset += emit_print_num(code + offset, vars[var_idx].value);
+                    offset += emit_print_var(code + offset, vars[var_idx].data_offset);
                 } else {
                     offset += emit_print(code + offset, arg);
                 }
@@ -601,10 +674,8 @@ void compile_kx_from_file(char* src_filename, char* out_filename) {
                 char* arg = line + 6;
                 while (*arg == ' ') arg++;
 
-                uint32_t sec = 0;
-
                 if (is_number(arg)) {
-                    sec = str_to_uint(arg);
+                    offset += emit_sleep(code + offset, str_to_uint(arg));
                 } else {
                     int var_idx = find_var(vars, var_count, arg);
                     if (var_idx < 0) {
@@ -612,12 +683,10 @@ void compile_kx_from_file(char* src_filename, char* out_filename) {
                         idx = 0;
                         continue;
                     }
-                    sec = vars[var_idx].value;
+
+                    offset += emit_sleep_var(code + offset, vars[var_idx].data_offset);
                 }
-
-                offset += emit_sleep(code + offset, sec);
             }
-
             // jump
             else if (strncmp(line, "jump ", 5) == 0) {
                 char* label = line + 5;
@@ -648,6 +717,17 @@ void compile_kx_from_file(char* src_filename, char* out_filename) {
     }
 
     offset += emit_exit(code + offset);
-    build_kx(out_filename, code, offset);
-    free(code);
+
+	// Patch prologue so EDI points to start of data section.
+	// After call/pop, EDI = base + 5
+	// So we need to add (final_code_size - 5)
+	uint32_t prologue_addend = offset - 9;
+	memcpy(code + 12, &prologue_addend, 4);
+	build_kx(out_filename, code, offset, data_section, data_size);
+
+	if (data_section) {
+		free(data_section);
+	}
+
+	free(code);
 }
