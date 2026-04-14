@@ -21,12 +21,4 @@ void shell_update();
 
 void run_kx_file(char* filename);
 
-uint32_t emit_print(uint8_t* buf, char* msg);
-uint32_t emit_sleep(uint8_t* buf, uint32_t sec);
-uint32_t emit_beep(uint8_t* buf);
-uint32_t emit_exit(uint8_t* buf);
-void build_kx(char* filename, uint8_t* code, uint32_t size);
-void compile_kx_from_file(char* src_filename, char* out_filename);
-void compile_single_print_kx(char* filename, char* message);
-
 #endif

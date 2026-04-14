@@ -56,7 +56,7 @@ as --32 src/boot/boot.s -o obj/boot.o
 as --32 src/boot/interrupts.s -o obj/interrupts.o
 
 echo "compiling kernel base..."
-for file in kernel gdt idt isr pic shell timer paging memory ramdisk mouse ata fat32 kx_loader; do
+for file in kernel gdt idt isr pic shell timer paging memory ramdisk mouse ata fat32 kx_loader kx_compiler; do
     gcc -m32 -c src/kernel/$file.c -o obj/$file.o \
         -std=gnu99 -ffreestanding -O2 -Wall -Wextra -fno-stack-protector
 done
@@ -78,7 +78,8 @@ ld -m elf_i386 --no-warn-rwx-segments -T src/linker.ld -o isodir/boot/myos.bin \
     obj/ramdisk.o \
     obj/ata.o \
     obj/fat32.o \
-    obj/kx_loader.o
+    obj/kx_loader.o \
+    obj/kx_compiler.o 
 
 # === FORGE ISO ===
 echo "forging ISO..."
