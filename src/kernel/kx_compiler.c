@@ -289,18 +289,45 @@ uint32_t emit_cmp_zero(uint8_t* buf, uint32_t data_offset) {
     return 10;
 }
 
+uint32_t emit_jump(uint8_t* buf, int32_t rel) {
+    buf[0] = 0xE9;
+    memcpy(buf + 1, &rel, 4);
+    return 5;
+}
+uint32_t emit_cmp_var_var(uint8_t* buf, uint32_t left_offset, uint32_t right_offset) {
+    // mov eax, [edx+left]
+    // cmp eax, [edx+right]
+    uint8_t code[] = {
+        0x8B, 0x82, 0,0,0,0,   // mov eax, [edx+disp32]
+        0x3B, 0x82, 0,0,0,0    // cmp eax, [edx+disp32]
+    };
+
+    memcpy(buf, code, sizeof(code));
+    memcpy(buf + 2, &left_offset, 4);
+    memcpy(buf + 8, &right_offset, 4);
+
+    return sizeof(code); // 12 bytes
+}
+
 uint32_t emit_je(uint8_t* buf, int32_t rel) {
-    // 0F 84 rel32
     buf[0] = 0x0F;
     buf[1] = 0x84;
     memcpy(buf + 2, &rel, 4);
     return 6;
 }
 
-uint32_t emit_jump(uint8_t* buf, int32_t rel) {
-    buf[0] = 0xE9;
-    memcpy(buf + 1, &rel, 4);
-    return 5;
+uint32_t emit_jl(uint8_t* buf, int32_t rel) {
+    buf[0] = 0x0F;
+    buf[1] = 0x8C;
+    memcpy(buf + 2, &rel, 4);
+    return 6;
+}
+
+uint32_t emit_jg(uint8_t* buf, int32_t rel) {
+    buf[0] = 0x0F;
+    buf[1] = 0x8F;
+    memcpy(buf + 2, &rel, 4);
+    return 6;
 }
 
 uint32_t emit_exit(uint8_t* buf) {
@@ -552,7 +579,81 @@ void compile_kx_from_file(char* src_filename, char* out_filename) {
             else if (strncmp(line, "jump ", 5) == 0) {
                 temp_offset += 5;
             }
-            
+            else if (strncmp(line, "ifeq ", 5) == 0) {
+                char* p = line + 5;
+                while (*p == ' ') p++;
+                char* left = p;
+
+                while (*p != '\0' && *p != ' ') p++;
+                if (*p != '\0') {
+                    *p = '\0';
+                    p++;
+                    while (*p == ' ') p++;
+                    char* right = p;
+
+                    while (*p != '\0' && *p != ' ') p++;
+                    if (*p != '\0') {
+                        *p = '\0';
+                        p++;
+                        while (*p == ' ') p++;
+                        char* label = p;
+
+                        if (left[0] && right[0] && label[0]) {
+                            temp_offset += 12 + 6;
+                        }
+                    }
+                }
+            }
+            else if (strncmp(line, "iflt ", 5) == 0) {
+                char* p = line + 5;
+                while (*p == ' ') p++;
+                char* left = p;
+
+                while (*p != '\0' && *p != ' ') p++;
+                if (*p != '\0') {
+                    *p = '\0';
+                    p++;
+                    while (*p == ' ') p++;
+                    char* right = p;
+
+                    while (*p != '\0' && *p != ' ') p++;
+                    if (*p != '\0') {
+                        *p = '\0';
+                        p++;
+                        while (*p == ' ') p++;
+                        char* label = p;
+
+                        if (left[0] && right[0] && label[0]) {
+                            temp_offset += 12 + 6;
+                        }
+                    }
+                }
+            }
+            else if (strncmp(line, "ifgt ", 5) == 0) {
+                char* p = line + 5;
+                while (*p == ' ') p++;
+                char* left = p;
+
+                while (*p != '\0' && *p != ' ') p++;
+                if (*p != '\0') {
+                    *p = '\0';
+                    p++;
+                    while (*p == ' ') p++;
+                    char* right = p;
+
+                    while (*p != '\0' && *p != ' ') p++;
+                    if (*p != '\0') {
+                        *p = '\0';
+                        p++;
+                        while (*p == ' ') p++;
+                        char* label = p;
+
+                        if (left[0] && right[0] && label[0]) {
+                            temp_offset += 12 + 6;
+                        }
+                    }
+                }
+            }            
             else if (strncmp(line, "ifzero ", 7) == 0) {
                 char* p = line + 7;
 
@@ -793,7 +894,162 @@ void compile_kx_from_file(char* src_filename, char* out_filename) {
                 int32_t rel = (int32_t)labels[label_idx].offset - (int32_t)(offset + 5);
                 offset += emit_jump(code + offset, rel);
             }
-            
+            else if (strncmp(line, "ifeq ", 5) == 0) {
+                char* p = line + 5;
+                while (*p == ' ') p++;
+                char* left = p;
+
+                while (*p != '\0' && *p != ' ') p++;
+                if (*p == '\0') {
+                    terminal_print("Compiler Error: Invalid ifeq syntax\n");
+                    idx = 0;
+                    continue;
+                }
+
+                *p = '\0';
+                p++;
+                while (*p == ' ') p++;
+                char* right = p;
+
+                while (*p != '\0' && *p != ' ') p++;
+                if (*p == '\0') {
+                    terminal_print("Compiler Error: Invalid ifeq syntax\n");
+                    idx = 0;
+                    continue;
+                }
+
+                *p = '\0';
+                p++;
+                while (*p == ' ') p++;
+                char* label = p;
+
+                int left_idx = find_var(vars, var_count, left);
+                int right_idx = find_var(vars, var_count, right);
+                int label_idx = find_label(labels, label_count, label);
+
+                if (left_idx < 0 || right_idx < 0) {
+                    terminal_print("Compiler Error: Unknown variable\n");
+                    idx = 0;
+                    continue;
+                }
+
+                if (label_idx < 0) {
+                    terminal_print("Compiler Error: Unknown label\n");
+                    idx = 0;
+                    continue;
+                }
+
+                offset += emit_cmp_var_var(code + offset,
+                                           vars[left_idx].data_offset,
+                                           vars[right_idx].data_offset);
+
+                int32_t rel = (int32_t)labels[label_idx].offset - (int32_t)(offset + 6);
+                offset += emit_je(code + offset, rel);
+            }
+            else if (strncmp(line, "iflt ", 5) == 0) {
+                char* p = line + 5;
+                while (*p == ' ') p++;
+                char* left = p;
+
+                while (*p != '\0' && *p != ' ') p++;
+                if (*p == '\0') {
+                    terminal_print("Compiler Error: Invalid iflt syntax\n");
+                    idx = 0;
+                    continue;
+                }
+
+                *p = '\0';
+                p++;
+                while (*p == ' ') p++;
+                char* right = p;
+
+                while (*p != '\0' && *p != ' ') p++;
+                if (*p == '\0') {
+                    terminal_print("Compiler Error: Invalid iflt syntax\n");
+                    idx = 0;
+                    continue;
+                }
+
+                *p = '\0';
+                p++;
+                while (*p == ' ') p++;
+                char* label = p;
+
+                int left_idx = find_var(vars, var_count, left);
+                int right_idx = find_var(vars, var_count, right);
+                int label_idx = find_label(labels, label_count, label);
+
+                if (left_idx < 0 || right_idx < 0) {
+                    terminal_print("Compiler Error: Unknown variable\n");
+                    idx = 0;
+                    continue;
+                }
+
+                if (label_idx < 0) {
+                    terminal_print("Compiler Error: Unknown label\n");
+                    idx = 0;
+                    continue;
+                }
+
+                offset += emit_cmp_var_var(code + offset,
+                                           vars[left_idx].data_offset,
+                                           vars[right_idx].data_offset);
+
+                int32_t rel = (int32_t)labels[label_idx].offset - (int32_t)(offset + 6);
+                offset += emit_jl(code + offset, rel);
+            }
+            else if (strncmp(line, "ifgt ", 5) == 0) {
+                char* p = line + 5;
+                while (*p == ' ') p++;
+                char* left = p;
+
+                while (*p != '\0' && *p != ' ') p++;
+                if (*p == '\0') {
+                    terminal_print("Compiler Error: Invalid ifgt syntax\n");
+                    idx = 0;
+                    continue;
+                }
+
+                *p = '\0';
+                p++;
+                while (*p == ' ') p++;
+                char* right = p;
+
+                while (*p != '\0' && *p != ' ') p++;
+                if (*p == '\0') {
+                    terminal_print("Compiler Error: Invalid ifgt syntax\n");
+                    idx = 0;
+                    continue;
+                }
+
+                *p = '\0';
+                p++;
+                while (*p == ' ') p++;
+                char* label = p;
+
+                int left_idx = find_var(vars, var_count, left);
+                int right_idx = find_var(vars, var_count, right);
+                int label_idx = find_label(labels, label_count, label);
+
+                if (left_idx < 0 || right_idx < 0) {
+                    terminal_print("Compiler Error: Unknown variable\n");
+                    idx = 0;
+                    continue;
+                }
+
+                if (label_idx < 0) {
+                    terminal_print("Compiler Error: Unknown label\n");
+                    idx = 0;
+                    continue;
+                }
+
+                offset += emit_cmp_var_var(code + offset,
+                                           vars[left_idx].data_offset,
+                                           vars[right_idx].data_offset);
+
+                int32_t rel = (int32_t)labels[label_idx].offset - (int32_t)(offset + 6);
+                offset += emit_jg(code + offset, rel);
+            }
             else if (strncmp(line, "ifzero ", 7) == 0) {
                 char* p = line + 7;
 
