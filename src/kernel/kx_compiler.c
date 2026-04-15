@@ -215,6 +215,36 @@ uint32_t emit_sub_imm(uint8_t* buf, uint32_t data_offset, uint32_t value) {
     return 10;
 }
 
+uint32_t emit_add_var(uint8_t* buf, uint32_t dst_offset, uint32_t src_offset) {
+    // mov eax, [edx+src_offset]
+    // add [edx+dst_offset], eax
+    uint8_t code[] = {
+        0x8B, 0x82, 0,0,0,0,   // mov eax, [edx+disp32]
+        0x01, 0x82, 0,0,0,0    // add [edx+disp32], eax
+    };
+
+    memcpy(buf, code, sizeof(code));
+    memcpy(buf + 2, &src_offset, 4);
+    memcpy(buf + 8, &dst_offset, 4);
+
+    return sizeof(code); // 12 bytes
+}
+
+uint32_t emit_sub_var(uint8_t* buf, uint32_t dst_offset, uint32_t src_offset) {
+    // mov eax, [edx+src_offset]
+    // sub [edx+dst_offset], eax
+    uint8_t code[] = {
+        0x8B, 0x82, 0,0,0,0,   // mov eax, [edx+disp32]
+        0x29, 0x82, 0,0,0,0    // sub [edx+disp32], eax
+    };
+
+    memcpy(buf, code, sizeof(code));
+    memcpy(buf + 2, &src_offset, 4);
+    memcpy(buf + 8, &dst_offset, 4);
+
+    return sizeof(code); // 12 bytes
+}
+
 uint32_t emit_print_var(uint8_t* buf, uint32_t data_offset) {
     // mov ebx, [edx+disp32]
     // mov eax, 7
@@ -445,6 +475,11 @@ void compile_kx_from_file(char* src_filename, char* out_filename) {
                     if (dst >= 0) {
                         if (is_number(arg)) {
                             temp_offset += 10;
+                        } else {
+                            int src_idx = find_var(vars, var_count, arg);
+                            if (src_idx >= 0) {
+                                temp_offset += 12;
+                            }
                         }
                     }
                 }
@@ -470,6 +505,11 @@ void compile_kx_from_file(char* src_filename, char* out_filename) {
                     if (dst >= 0) {
                         if (is_number(arg)) {
                             temp_offset += 10;
+                        } else {
+                            int src_idx = find_var(vars, var_count, arg);
+                            if (src_idx >= 0) {
+                                temp_offset += 12;
+                            }
                         }
                     }
                 }
@@ -644,12 +684,6 @@ void compile_kx_from_file(char* src_filename, char* out_filename) {
                 while (*p == ' ') p++;
                 char* arg = p;
 
-                if (!is_number(arg)) {
-                    terminal_print("Compiler Error: add currently supports only numbers\n");
-                    idx = 0;
-                    continue;
-                }
-
                 int var_idx = find_var(vars, var_count, name);
                 if (var_idx < 0) {
                     terminal_print("Compiler Error: Unknown variable\n");
@@ -657,7 +691,18 @@ void compile_kx_from_file(char* src_filename, char* out_filename) {
                     continue;
                 }
 
-                offset += emit_add_imm(code + offset, vars[var_idx].data_offset, str_to_uint(arg));
+                if (is_number(arg)) {
+                    offset += emit_add_imm(code + offset, vars[var_idx].data_offset, str_to_uint(arg));
+                } else {
+                    int src_idx = find_var(vars, var_count, arg);
+                    if (src_idx < 0) {
+                        terminal_print("Compiler Error: Unknown variable\n");
+                        idx = 0;
+                        continue;
+                    }
+
+                    offset += emit_add_var(code + offset, vars[var_idx].data_offset, vars[src_idx].data_offset);
+                }
             }
 
             // sub
@@ -681,12 +726,6 @@ void compile_kx_from_file(char* src_filename, char* out_filename) {
                 while (*p == ' ') p++;
                 char* arg = p;
 
-                if (!is_number(arg)) {
-                    terminal_print("Compiler Error: sub currently supports only numbers\n");
-                    idx = 0;
-                    continue;
-                }
-
                 int var_idx = find_var(vars, var_count, name);
                 if (var_idx < 0) {
                     terminal_print("Compiler Error: Unknown variable\n");
@@ -694,7 +733,18 @@ void compile_kx_from_file(char* src_filename, char* out_filename) {
                     continue;
                 }
 
-                offset += emit_sub_imm(code + offset, vars[var_idx].data_offset, str_to_uint(arg));
+                if (is_number(arg)) {
+                    offset += emit_sub_imm(code + offset, vars[var_idx].data_offset, str_to_uint(arg));
+                } else {
+                    int src_idx = find_var(vars, var_count, arg);
+                    if (src_idx < 0) {
+                        terminal_print("Compiler Error: Unknown variable\n");
+                        idx = 0;
+                        continue;
+                    }
+
+                    offset += emit_sub_var(code + offset, vars[var_idx].data_offset, vars[src_idx].data_offset);
+                }
             }
             // print
             else if (strncmp(line, "print ", 6) == 0) {
