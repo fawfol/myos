@@ -16,6 +16,12 @@ typedef struct {
     uint32_t offset;
 } kx_label_t;
 
+typedef struct {
+    char varname[32];
+    char start_label[32];
+    char end_label[32];
+} kx_while_t;
+
 uint32_t str_to_uint(char* str) {
     uint32_t res = 0;
     for (int i = 0; str[i] >= '0' && str[i] <= '9'; i++) {
@@ -103,6 +109,44 @@ uint32_t emit_sleep(uint8_t* buf, uint32_t sec) {
     memcpy(buf + 1, &sec, 4);
 
     return sizeof(code);
+}
+
+void make_while_labels(int id, char* start_out, char* end_out) {
+    char prefix1[] = "__while_start_";
+    char prefix2[] = "__while_end_";
+
+    int pos = 0;
+    for (int i = 0; prefix1[i] != '\0'; i++) start_out[pos++] = prefix1[i];
+
+    char digits[16];
+    int d = 0;
+    if (id == 0) {
+        digits[d++] = '0';
+    } else {
+        int n = id;
+        while (n > 0) {
+            digits[d++] = (n % 10) + '0';
+            n /= 10;
+        }
+    }
+    while (d > 0) start_out[pos++] = digits[--d];
+    start_out[pos] = '\0';
+
+    pos = 0;
+    for (int i = 0; prefix2[i] != '\0'; i++) end_out[pos++] = prefix2[i];
+
+    d = 0;
+    if (id == 0) {
+        digits[d++] = '0';
+    } else {
+        int n = id;
+        while (n > 0) {
+            digits[d++] = (n % 10) + '0';
+            n /= 10;
+        }
+    }
+    while (d > 0) end_out[pos++] = digits[--d];
+    end_out[pos] = '\0';
 }
 
 uint32_t emit_beep(uint8_t* buf) {
@@ -423,6 +467,32 @@ void compile_single_print_kx(char* filename, char* message) {
     terminal_print("\n");
 }
 
+///line space trimmer
+void trim_line(char* s) {
+    if (!s) return;
+
+    // trim leading spaces by shifting left
+    int start = 0;
+    while (s[start] == ' ') {
+        start++;
+    }
+
+    if (start > 0) {
+        int i = 0;
+        while (s[start + i] != '\0') {
+            s[i] = s[start + i];
+            i++;
+        }
+        s[i] = '\0';
+    }
+
+    // trim trailing spaces
+    int len = strlen(s);
+    while (len > 0 && s[len - 1] == ' ') {
+        s[len - 1] = '\0';
+        len--;
+    }
+}
 void compile_kx_from_file(char* src_filename, char* out_filename) {
     vfs_node_t* src = vfs_find(vfs_root, src_filename);
     if (!src) {
@@ -446,6 +516,10 @@ void compile_kx_from_file(char* src_filename, char* out_filename) {
 
     kx_label_t labels[64];
     int label_count = 0;
+    
+    kx_while_t while_stack[32];
+    int while_top = 0;
+    int while_counter = 0;
 
     memset(vars, 0, sizeof(vars));
     memset(labels, 0, sizeof(labels));
@@ -464,7 +538,11 @@ void compile_kx_from_file(char* src_filename, char* out_filename) {
                 line[idx++] = c;
             }
             line[idx] = '\0';
-
+			trim_line(line);
+			if (line[0] == '\0') {
+				idx = 0;
+				continue;
+			}
             int len = strlen(line);
 
             // label
@@ -610,7 +688,7 @@ void compile_kx_from_file(char* src_filename, char* out_filename) {
                 if (while_top > 0) {
                     temp_offset += 5; // jump rel32
                 }
-            }
+            } 
             else if (strncmp(line, "ifeq ", 5) == 0) {
                 char* p = line + 5;
                 while (*p == ' ') p++;
@@ -698,6 +776,56 @@ void compile_kx_from_file(char* src_filename, char* out_filename) {
                     }
                 }
             }            
+            else if (strncmp(line, "while ", 6) == 0) {
+                char* varname = line + 6;
+                while (*varname == ' ') varname++;
+
+                if (varname[0] == '\0') {
+                    idx = 0;
+                    continue;
+                }
+
+                if (while_top >= 32) {
+                    idx = 0;
+                    continue;
+                }
+
+                kx_while_t* w = &while_stack[while_top++];
+                memset(w, 0, sizeof(kx_while_t));
+
+                uint32_t len2 = strlen(varname);
+                if (len2 > 31) len2 = 31;
+                memcpy(w->varname, varname, len2);
+                w->varname[len2] = '\0';
+
+                make_while_labels(while_counter++, w->start_label, w->end_label);
+
+                set_label(labels, &label_count, w->start_label, temp_offset);
+
+                // while x  -> cmp_zero + je end_label
+                temp_offset += 10 + 6;
+            }
+            else if (strcmp(line, "endwhile") == 0) {
+                if (while_top <= 0) {
+                    idx = 0;
+                    continue;
+                }
+
+                kx_while_t* w = &while_stack[while_top - 1];
+
+                // jump back to while start
+                temp_offset += 5;
+
+                // end label lands after that jump
+                set_label(labels, &label_count, w->end_label, temp_offset);
+
+                while_top--;
+            }
+            else if (strcmp(line, "continue") == 0) {
+                if (while_top > 0) {
+                    temp_offset += 5; // jump rel32
+                }
+            }
             else if (strncmp(line, "ifzero ", 7) == 0) {
                 char* p = line + 7;
 
@@ -750,6 +878,8 @@ void compile_kx_from_file(char* src_filename, char* out_filename) {
     // =========================
     // PASS 2: real codegen
     // =========================
+    while_top = 0;
+    while_counter = 0;
     idx = 0;
     offset = 0;
     offset += emit_prologue(code + offset, temp_offset);
@@ -762,7 +892,11 @@ void compile_kx_from_file(char* src_filename, char* out_filename) {
                 line[idx++] = c;
             }
             line[idx] = '\0';
-
+            trim_line(line);
+			if (line[0] == '\0') {
+				idx = 0;
+				continue;
+			}
             int len = strlen(line);
 
             // skip labels in pass 2
@@ -805,7 +939,9 @@ void compile_kx_from_file(char* src_filename, char* out_filename) {
                     continue;
                 }
 
-                offset += emit_store_imm(code + offset, vars[var_idx].data_offset, str_to_uint(value_str));
+                offset += emit_store_imm(code + offset,
+                                         vars[var_idx].data_offset,
+                                         str_to_uint(value_str));
             }
 
             // add
@@ -1162,6 +1298,92 @@ void compile_kx_from_file(char* src_filename, char* out_filename) {
 
                 int32_t rel = (int32_t)labels[label_idx].offset - (int32_t)(offset + 6);
                 offset += emit_jg(code + offset, rel);
+            }
+            else if (strncmp(line, "while ", 6) == 0) {
+                char* varname = line + 6;
+                while (*varname == ' ') varname++;
+
+                if (varname[0] == '\0') {
+                    terminal_print("Compiler Error: Invalid while syntax\n");
+                    idx = 0;
+                    continue;
+                }
+
+                if (while_top >= 32) {
+                    terminal_print("Compiler Error: while stack full\n");
+                    idx = 0;
+                    continue;
+                }
+
+                kx_while_t* w = &while_stack[while_top++];
+                memset(w, 0, sizeof(kx_while_t));
+
+                uint32_t len2 = strlen(varname);
+                if (len2 > 31) len2 = 31;
+                memcpy(w->varname, varname, len2);
+                w->varname[len2] = '\0';
+
+                make_while_labels(while_counter++, w->start_label, w->end_label);
+
+                int var_idx = find_var(vars, var_count, w->varname);
+                int end_idx = find_label(labels, label_count, w->end_label);
+
+                if (var_idx < 0) {
+                    terminal_print("Compiler Error: Unknown variable\n");
+                    idx = 0;
+                    continue;
+                }
+
+                if (end_idx < 0) {
+                    terminal_print("Compiler Error: Unknown while end label\n");
+                    idx = 0;
+                    continue;
+                }
+
+                offset += emit_cmp_zero(code + offset, vars[var_idx].data_offset);
+
+                int32_t rel = (int32_t)labels[end_idx].offset - (int32_t)(offset + 6);
+                offset += emit_je(code + offset, rel);
+            }
+            else if (strcmp(line, "endwhile") == 0) {
+                if (while_top <= 0) {
+                    terminal_print("Compiler Error: endwhile without while\n");
+                    idx = 0;
+                    continue;
+                }
+
+                kx_while_t* w = &while_stack[while_top - 1];
+
+                int start_idx = find_label(labels, label_count, w->start_label);
+                if (start_idx < 0) {
+                    terminal_print("Compiler Error: Unknown while start label\n");
+                    idx = 0;
+                    continue;
+                }
+
+                int32_t rel = (int32_t)labels[start_idx].offset - (int32_t)(offset + 5);
+                offset += emit_jump(code + offset, rel);
+
+                while_top--;
+            }
+            else if (strcmp(line, "continue") == 0) {
+                if (while_top <= 0) {
+                    terminal_print("Compiler Error: continue outside while\n");
+                    idx = 0;
+                    continue;
+                }
+
+                kx_while_t* w = &while_stack[while_top - 1];
+
+                int start_idx = find_label(labels, label_count, w->start_label);
+                if (start_idx < 0) {
+                    terminal_print("Compiler Error: Unknown while start label\n");
+                    idx = 0;
+                    continue;
+                }
+
+                int32_t rel = (int32_t)labels[start_idx].offset - (int32_t)(offset + 5);
+                offset += emit_jump(code + offset, rel);
             }
             else if (strncmp(line, "ifzero ", 7) == 0) {
                 char* p = line + 7;
