@@ -39,6 +39,12 @@ int find_label(kx_label_t* labels, int count, char* name) {
 }
 
 void set_label(kx_label_t* labels, int* count, char* name, uint32_t offset) {
+    int existing = find_label(labels, *count, name);
+    if (existing >= 0) {
+        labels[existing].offset = offset;
+        return;
+    }
+
     if (*count < 64) {
         memset(labels[*count].name, 0, 32);
 
@@ -273,7 +279,6 @@ uint32_t emit_add_var(uint8_t* buf, uint32_t dst_offset, uint32_t src_offset) {
 
     return sizeof(code); // 12 bytes
 }
-
 uint32_t emit_sub_var(uint8_t* buf, uint32_t dst_offset, uint32_t src_offset) {
     // mov eax, [edx+src_offset]
     // sub [edx+dst_offset], eax
@@ -288,7 +293,20 @@ uint32_t emit_sub_var(uint8_t* buf, uint32_t dst_offset, uint32_t src_offset) {
 
     return sizeof(code); // 12 bytes
 }
+uint32_t emit_mov_var(uint8_t* buf, uint32_t dst_offset, uint32_t src_offset) {
+    // mov eax, [edx+src_offset]
+    // mov [edx+dst_offset], eax
+    uint8_t code[] = {
+        0x8B, 0x82, 0,0,0,0,   // mov eax, [edx+disp32]
+        0x89, 0x82, 0,0,0,0    // mov [edx+disp32], eax
+    };
 
+    memcpy(buf, code, sizeof(code));
+    memcpy(buf + 2, &src_offset, 4);
+    memcpy(buf + 8, &dst_offset, 4);
+
+    return sizeof(code); // 12 bytes
+}
 uint32_t emit_print_var(uint8_t* buf, uint32_t data_offset) {
     // mov ebx, [edx+disp32]
     // mov eax, 7
@@ -337,6 +355,41 @@ uint32_t emit_jump(uint8_t* buf, int32_t rel) {
     buf[0] = 0xE9;
     memcpy(buf + 1, &rel, 4);
     return 5;
+}
+uint32_t emit_call(uint8_t* buf, int32_t rel) {
+    buf[0] = 0xE8;
+    memcpy(buf + 1, &rel, 4);
+    return 5;
+}
+
+uint32_t emit_ret(uint8_t* buf) {
+    buf[0] = 0xC3;
+    return 1;
+}
+uint32_t emit_push_var(uint8_t* buf, uint32_t data_offset) {
+    // mov eax, [edx+disp32]
+    // push eax
+    uint8_t code[] = {
+        0x8B, 0x82, 0,0,0,0,   // mov eax, [edx+disp32]
+        0x50                    // push eax
+    };
+
+    memcpy(buf, code, sizeof(code));
+    memcpy(buf + 2, &data_offset, 4);
+    return sizeof(code); // 7 bytes
+}
+
+uint32_t emit_pop_var(uint8_t* buf, uint32_t data_offset) {
+    // pop eax
+    // mov [edx+disp32], eax
+    uint8_t code[] = {
+        0x58,                   // pop eax
+        0x89, 0x82, 0,0,0,0    // mov [edx+disp32], eax
+    };
+
+    memcpy(buf, code, sizeof(code));
+    memcpy(buf + 3, &data_offset, 4);
+    return sizeof(code); // 7 bytes
 }
 uint32_t emit_cmp_var_imm(uint8_t* buf, uint32_t left_offset, uint32_t imm) {
     // mov eax, [edx+left]
@@ -527,6 +580,12 @@ void compile_kx_from_file(char* src_filename, char* out_filename) {
     // =========================
     // PASS 1: labels + sizes
     // =========================
+    set_var(vars, &var_count, "retv", 0);
+    set_var(vars, &var_count, "retv", 0);
+	set_var(vars, &var_count, "arg0", 0);
+	set_var(vars, &var_count, "arg1", 0);
+	set_var(vars, &var_count, "arg2", 0);
+	set_var(vars, &var_count, "arg3", 0);
     uint32_t temp_offset = 16;
     idx = 0;
 
@@ -549,6 +608,64 @@ void compile_kx_from_file(char* src_filename, char* out_filename) {
             if (len > 0 && line[len - 1] == ':') {
                 line[len - 1] = '\0';
                 set_label(labels, &label_count, line, temp_offset);
+            }
+            
+            // func
+            else if (strncmp(line, "func ", 5) == 0) {
+                char* name = line + 5;
+                while (*name == ' ') name++;
+
+                if (name[0] != '\0') {
+                    set_label(labels, &label_count, name, temp_offset);
+                }
+            }
+
+            // endfunc
+            else if (strcmp(line, "endfunc") == 0) {
+                // no bytes emitted
+            }
+			else if (strncmp(line, "pushvar ", 8) == 0) {
+				temp_offset += 7;
+			}
+			else if (strncmp(line, "popvar ", 7) == 0) {
+				temp_offset += 7;
+			}
+			else if (strncmp(line, "mov ", 4) == 0) {
+				char* p = line + 4;
+
+				while (*p == ' ') p++;
+				char* dst = p;
+
+				while (*p != '\0' && *p != ' ') p++;
+
+				if (*p != '\0') {
+					*p = '\0';
+					p++;
+
+					while (*p == ' ') p++;
+					char* src_arg = p;
+
+					int dst_idx = find_var(vars, var_count, dst);
+					if (dst_idx >= 0) {
+						if (is_number(src_arg)) {
+						    temp_offset += 10;   // same as store imm
+						} else {
+						    int src_idx = find_var(vars, var_count, src_arg);
+						    if (src_idx >= 0) {
+						        temp_offset += 12; // mov var -> var
+						    }
+						}
+					}
+				}
+			}
+            // ret
+            else if (strcmp(line, "ret") == 0) {
+                temp_offset += 1;
+            }
+            
+            // call
+            else if (strncmp(line, "call ", 5) == 0) {
+                temp_offset += 5;
             }
 
             // let
@@ -903,6 +1020,115 @@ void compile_kx_from_file(char* src_filename, char* out_filename) {
             if (len > 0 && line[len - 1] == ':') {
                 idx = 0;
                 continue;
+            }
+            
+            // func
+            if (strncmp(line, "func ", 5) == 0) {
+                // function declarations emit no code
+                idx = 0;
+                continue;
+            }
+
+            // endfunc
+            else if (strcmp(line, "endfunc") == 0) {
+                idx = 0;
+                continue;
+            }
+			else if (strncmp(line, "pushvar ", 8) == 0) {
+				char* name = line + 8;
+				while (*name == ' ') name++;
+
+				int var_idx = find_var(vars, var_count, name);
+				if (var_idx < 0) {
+					terminal_print("Compiler Error: Unknown variable\n");
+					idx = 0;
+					continue;
+				}
+
+				offset += emit_push_var(code + offset, vars[var_idx].data_offset);
+			}
+			else if (strncmp(line, "popvar ", 7) == 0) {
+				char* name = line + 7;
+				while (*name == ' ') name++;
+
+				int var_idx = find_var(vars, var_count, name);
+				if (var_idx < 0) {
+					terminal_print("Compiler Error: Unknown variable\n");
+					idx = 0;
+					continue;
+				}
+
+				offset += emit_pop_var(code + offset, vars[var_idx].data_offset);
+			}
+			else if (strncmp(line, "mov ", 4) == 0) {
+				char* p = line + 4;
+
+				while (*p == ' ') p++;
+				char* dst = p;
+
+				while (*p != '\0' && *p != ' ') p++;
+
+				if (*p == '\0') {
+					terminal_print("Compiler Error: Invalid mov syntax\n");
+					idx = 0;
+					continue;
+				}
+
+				*p = '\0';
+				p++;
+
+				while (*p == ' ') p++;
+				char* src_arg = p;
+
+				int dst_idx = find_var(vars, var_count, dst);
+				if (dst_idx < 0) {
+					terminal_print("Compiler Error: Unknown variable\n");
+					idx = 0;
+					continue;
+				}
+
+				if (is_number(src_arg)) {
+					offset += emit_store_imm(code + offset,
+						                     vars[dst_idx].data_offset,
+						                     str_to_uint(src_arg));
+				} else {
+					int src_idx = find_var(vars, var_count, src_arg);
+					if (src_idx < 0) {
+						terminal_print("Compiler Error: Unknown variable\n");
+						idx = 0;
+						continue;
+					}
+
+					offset += emit_mov_var(code + offset,
+						                   vars[dst_idx].data_offset,
+						                   vars[src_idx].data_offset);
+				}
+			}
+            // ret
+            else if (strcmp(line, "ret") == 0) {
+                offset += emit_ret(code + offset);
+            }
+
+            // call
+            else if (strncmp(line, "call ", 5) == 0) {
+                char* label = line + 5;
+                while (*label == ' ') label++;
+
+                if (label[0] == '\0') {
+                    terminal_print("Compiler Error: Invalid call syntax\n");
+                    idx = 0;
+                    continue;
+                }
+
+                int label_idx = find_label(labels, label_count, label);
+                if (label_idx < 0) {
+                    terminal_print("Compiler Error: Unknown function/label\n");
+                    idx = 0;
+                    continue;
+                }
+
+                int32_t rel = (int32_t)labels[label_idx].offset - (int32_t)(offset + 5);
+                offset += emit_call(code + offset, rel);
             }
 
             // let
