@@ -606,6 +606,11 @@ void compile_kx_from_file(char* src_filename, char* out_filename) {
             else if (strncmp(line, "jump ", 5) == 0) {
                 temp_offset += 5;
             }
+            else if (strcmp(line, "break") == 0) {
+                if (while_top > 0) {
+                    temp_offset += 5; // jump rel32
+                }
+            }
             else if (strncmp(line, "ifeq ", 5) == 0) {
                 char* p = line + 5;
                 while (*p == ' ') p++;
@@ -945,6 +950,25 @@ void compile_kx_from_file(char* src_filename, char* out_filename) {
                 }
 
                 int32_t rel = (int32_t)labels[label_idx].offset - (int32_t)(offset + 5);
+                offset += emit_jump(code + offset, rel);
+            }
+            else if (strcmp(line, "break") == 0) {
+                if (while_top <= 0) {
+                    terminal_print("Compiler Error: break outside while\n");
+                    idx = 0;
+                    continue;
+                }
+
+                kx_while_t* w = &while_stack[while_top - 1];
+
+                int end_idx = find_label(labels, label_count, w->end_label);
+                if (end_idx < 0) {
+                    terminal_print("Compiler Error: Unknown while end label\n");
+                    idx = 0;
+                    continue;
+                }
+
+                int32_t rel = (int32_t)labels[end_idx].offset - (int32_t)(offset + 5);
                 offset += emit_jump(code + offset, rel);
             }
             else if (strncmp(line, "ifeq ", 5) == 0) {
