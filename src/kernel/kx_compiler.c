@@ -294,6 +294,20 @@ uint32_t emit_jump(uint8_t* buf, int32_t rel) {
     memcpy(buf + 1, &rel, 4);
     return 5;
 }
+uint32_t emit_cmp_var_imm(uint8_t* buf, uint32_t left_offset, uint32_t imm) {
+    // mov eax, [edx+left]
+    // cmp eax, imm32
+    uint8_t code[] = {
+        0x8B, 0x82, 0,0,0,0,   // mov eax, [edx+disp32]
+        0x3D, 0,0,0,0          // cmp eax, imm32
+    };
+
+    memcpy(buf, code, sizeof(code));
+    memcpy(buf + 2, &left_offset, 4);
+    memcpy(buf + 7, &imm, 4);
+
+    return sizeof(code); // 11 bytes
+}
 uint32_t emit_cmp_var_var(uint8_t* buf, uint32_t left_offset, uint32_t right_offset) {
     // mov eax, [edx+left]
     // cmp eax, [edx+right]
@@ -554,6 +568,19 @@ void compile_kx_from_file(char* src_filename, char* out_filename) {
                     temp_offset += 24 + strlen(msg) + 1;
                 }
             }
+            else if (strncmp(line, "printnl ", 8) == 0) {
+                char* msg = line + 8;
+                while (*msg == ' ') msg++;
+
+                int var_idx = find_var(vars, var_count, msg);
+                if (var_idx >= 0) {
+                    // print var (13 bytes) + print "\n" (24 + 2 bytes)
+                    temp_offset += 13 + 26;
+                } else {
+                    // print text + print "\n"
+                    temp_offset += (24 + strlen(msg) + 1) + 26;
+                }
+            }
 
             // sleep
             else if (strncmp(line, "sleep ", 6) == 0) {
@@ -599,7 +626,11 @@ void compile_kx_from_file(char* src_filename, char* out_filename) {
                         char* label = p;
 
                         if (left[0] && right[0] && label[0]) {
-                            temp_offset += 12 + 6;
+                            if (is_number(right)) {
+                                temp_offset += 11 + 6;
+                            } else {
+                                temp_offset += 12 + 6;
+                            }
                         }
                     }
                 }
@@ -624,7 +655,11 @@ void compile_kx_from_file(char* src_filename, char* out_filename) {
                         char* label = p;
 
                         if (left[0] && right[0] && label[0]) {
-                            temp_offset += 12 + 6;
+                            if (is_number(right)) {
+                                temp_offset += 11 + 6;
+                            } else {
+                                temp_offset += 12 + 6;
+                            }
                         }
                     }
                 }
@@ -649,7 +684,11 @@ void compile_kx_from_file(char* src_filename, char* out_filename) {
                         char* label = p;
 
                         if (left[0] && right[0] && label[0]) {
-                            temp_offset += 12 + 6;
+                            if (is_number(right)) {
+                                temp_offset += 11 + 6;
+                            } else {
+                                temp_offset += 12 + 6;
+                            }
                         }
                     }
                 }
@@ -860,6 +899,20 @@ void compile_kx_from_file(char* src_filename, char* out_filename) {
                     offset += emit_print(code + offset, arg);
                 }
             }
+            else if (strncmp(line, "printnl ", 8) == 0) {
+                char* arg = line + 8;
+                while (*arg == ' ') arg++;
+
+                int var_idx = find_var(vars, var_count, arg);
+
+                if (var_idx >= 0) {
+                    offset += emit_print_var(code + offset, vars[var_idx].data_offset);
+                } else {
+                    offset += emit_print(code + offset, arg);
+                }
+
+                offset += emit_print(code + offset, "\n");
+            }
 
             // sleep
             else if (strncmp(line, "sleep ", 6) == 0) {
@@ -924,27 +977,39 @@ void compile_kx_from_file(char* src_filename, char* out_filename) {
                 char* label = p;
 
                 int left_idx = find_var(vars, var_count, left);
-                int right_idx = find_var(vars, var_count, right);
-                int label_idx = find_label(labels, label_count, label);
+				int label_idx = find_label(labels, label_count, label);
 
-                if (left_idx < 0 || right_idx < 0) {
-                    terminal_print("Compiler Error: Unknown variable\n");
-                    idx = 0;
-                    continue;
-                }
+				if (left_idx < 0) {
+					terminal_print("Compiler Error: Unknown variable\n");
+					idx = 0;
+					continue;
+				}
 
-                if (label_idx < 0) {
-                    terminal_print("Compiler Error: Unknown label\n");
-                    idx = 0;
-                    continue;
-                }
+				if (label_idx < 0) {
+					terminal_print("Compiler Error: Unknown label\n");
+					idx = 0;
+					continue;
+				}
 
-                offset += emit_cmp_var_var(code + offset,
-                                           vars[left_idx].data_offset,
-                                           vars[right_idx].data_offset);
+				if (is_number(right)) {
+					offset += emit_cmp_var_imm(code + offset,
+								               vars[left_idx].data_offset,
+								               str_to_uint(right));
+				} else {
+					int right_idx = find_var(vars, var_count, right);
+					if (right_idx < 0) {
+						terminal_print("Compiler Error: Unknown variable\n");
+						idx = 0;
+						continue;
+					}
 
-                int32_t rel = (int32_t)labels[label_idx].offset - (int32_t)(offset + 6);
-                offset += emit_je(code + offset, rel);
+					offset += emit_cmp_var_var(code + offset,
+								               vars[left_idx].data_offset,
+								               vars[right_idx].data_offset);
+				}
+
+				int32_t rel = (int32_t)labels[label_idx].offset - (int32_t)(offset + 6);
+				offset += emit_je(code + offset, rel);
             }
             else if (strncmp(line, "iflt ", 5) == 0) {
                 char* p = line + 5;
@@ -975,11 +1040,10 @@ void compile_kx_from_file(char* src_filename, char* out_filename) {
                 while (*p == ' ') p++;
                 char* label = p;
 
-                int left_idx = find_var(vars, var_count, left);
-                int right_idx = find_var(vars, var_count, right);
+				int left_idx = find_var(vars, var_count, left);
                 int label_idx = find_label(labels, label_count, label);
 
-                if (left_idx < 0 || right_idx < 0) {
+                if (left_idx < 0) {
                     terminal_print("Compiler Error: Unknown variable\n");
                     idx = 0;
                     continue;
@@ -991,9 +1055,22 @@ void compile_kx_from_file(char* src_filename, char* out_filename) {
                     continue;
                 }
 
-                offset += emit_cmp_var_var(code + offset,
-                                           vars[left_idx].data_offset,
-                                           vars[right_idx].data_offset);
+                if (is_number(right)) {
+                    offset += emit_cmp_var_imm(code + offset,
+                                               vars[left_idx].data_offset,
+                                               str_to_uint(right));
+                } else {
+                    int right_idx = find_var(vars, var_count, right);
+                    if (right_idx < 0) {
+                        terminal_print("Compiler Error: Unknown variable\n");
+                        idx = 0;
+                        continue;
+                    }
+
+                    offset += emit_cmp_var_var(code + offset,
+                                               vars[left_idx].data_offset,
+                                               vars[right_idx].data_offset);
+                }
 
                 int32_t rel = (int32_t)labels[label_idx].offset - (int32_t)(offset + 6);
                 offset += emit_jl(code + offset, rel);
@@ -1028,10 +1105,9 @@ void compile_kx_from_file(char* src_filename, char* out_filename) {
                 char* label = p;
 
                 int left_idx = find_var(vars, var_count, left);
-                int right_idx = find_var(vars, var_count, right);
                 int label_idx = find_label(labels, label_count, label);
 
-                if (left_idx < 0 || right_idx < 0) {
+                if (left_idx < 0) {
                     terminal_print("Compiler Error: Unknown variable\n");
                     idx = 0;
                     continue;
@@ -1043,9 +1119,22 @@ void compile_kx_from_file(char* src_filename, char* out_filename) {
                     continue;
                 }
 
-                offset += emit_cmp_var_var(code + offset,
-                                           vars[left_idx].data_offset,
-                                           vars[right_idx].data_offset);
+                if (is_number(right)) {
+                    offset += emit_cmp_var_imm(code + offset,
+                                               vars[left_idx].data_offset,
+                                               str_to_uint(right));
+                } else {
+                    int right_idx = find_var(vars, var_count, right);
+                    if (right_idx < 0) {
+                        terminal_print("Compiler Error: Unknown variable\n");
+                        idx = 0;
+                        continue;
+                    }
+
+                    offset += emit_cmp_var_var(code + offset,
+                                               vars[left_idx].data_offset,
+                                               vars[right_idx].data_offset);
+                }
 
                 int32_t rel = (int32_t)labels[label_idx].offset - (int32_t)(offset + 6);
                 offset += emit_jg(code + offset, rel);

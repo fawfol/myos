@@ -23,6 +23,7 @@ uint32_t emit_cmp_zero(uint8_t* buf, uint32_t data_offset);
 uint32_t emit_add_var(uint8_t* buf, uint32_t dst_offset, uint32_t src_offset);
 uint32_t emit_sub_var(uint8_t* buf, uint32_t dst_offset, uint32_t src_offset);
 uint32_t emit_cmp_var_var(uint8_t* buf, uint32_t left_offset, uint32_t right_offset);
+uint32_t emit_cmp_var_imm(uint8_t* buf, uint32_t left_offset, uint32_t imm);
 uint32_t emit_je(uint8_t* buf, int32_t rel);
 uint32_t emit_jl(uint8_t* buf, int32_t rel);
 uint32_t emit_jg(uint8_t* buf, int32_t rel);
