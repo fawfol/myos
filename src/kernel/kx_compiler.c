@@ -21,6 +21,14 @@ typedef struct {
     char start_label[32];
     char end_label[32];
 } kx_while_t;
+typedef struct {
+    char else_label[32];
+    char end_label[32];
+} kx_if_t;
+
+kx_if_t if_stack[32];
+int if_top = 0;
+int if_counter = 0;
 
 uint32_t str_to_uint(char* str) {
     uint32_t res = 0;
@@ -56,6 +64,44 @@ void set_label(kx_label_t* labels, int* count, char* name, uint32_t offset) {
         labels[*count].offset = offset;
         (*count)++;
     }
+}
+void make_if_labels(int id, char* else_out, char* end_out) {
+    char prefix1[] = "__if_else_";
+    char prefix2[] = "__if_end_";
+
+    int pos = 0;
+
+    // else label
+    for (int i = 0; prefix1[i]; i++) else_out[pos++] = prefix1[i];
+
+    char digits[16];
+    int d = 0;
+    if (id == 0) digits[d++] = '0';
+    else {
+        int n = id;
+        while (n > 0) {
+            digits[d++] = (n % 10) + '0';
+            n /= 10;
+        }
+    }
+    while (d > 0) else_out[pos++] = digits[--d];
+    else_out[pos] = '\0';
+
+    // end label
+    pos = 0;
+    for (int i = 0; prefix2[i]; i++) end_out[pos++] = prefix2[i];
+
+    d = 0;
+    if (id == 0) digits[d++] = '0';
+    else {
+        int n = id;
+        while (n > 0) {
+            digits[d++] = (n % 10) + '0';
+            n /= 10;
+        }
+    }
+    while (d > 0) end_out[pos++] = digits[--d];
+    end_out[pos] = '\0';
 }
 
 int is_number(char* s) {
@@ -440,7 +486,25 @@ uint32_t emit_jg(uint8_t* buf, int32_t rel) {
     memcpy(buf + 2, &rel, 4);
     return 6;
 }
+uint32_t emit_jle(uint8_t* buf, int32_t rel) {
+    buf[0] = 0x0F;
+    buf[1] = 0x8E;
+    memcpy(buf + 2, &rel, 4);
+    return 6;
+}
+uint32_t emit_jne(uint8_t* buf, int32_t rel) {
+    buf[0] = 0x0F;
+    buf[1] = 0x85;
+    memcpy(buf + 2, &rel, 4);
+    return 6;
+}
 
+uint32_t emit_jge(uint8_t* buf, int32_t rel) {
+    buf[0] = 0x0F;
+    buf[1] = 0x8D;
+    memcpy(buf + 2, &rel, 4);
+    return 6;
+}
 uint32_t emit_exit(uint8_t* buf) {
     uint8_t code[] = {
         0xB8,4,0,0,0,   // mov eax, 4
@@ -581,13 +645,15 @@ void compile_kx_from_file(char* src_filename, char* out_filename) {
     // PASS 1: labels + sizes
     // =========================
     set_var(vars, &var_count, "retv", 0);
-    set_var(vars, &var_count, "retv", 0);
 	set_var(vars, &var_count, "arg0", 0);
 	set_var(vars, &var_count, "arg1", 0);
 	set_var(vars, &var_count, "arg2", 0);
 	set_var(vars, &var_count, "arg3", 0);
     uint32_t temp_offset = 16;
     idx = 0;
+    // Reset IF stack before PASS 1 loop
+    if_top = 0;
+    if_counter = 0;
 
     for (uint32_t i = 0; i < src->length; i++) {
         char c = data[i];
@@ -865,34 +931,51 @@ void compile_kx_from_file(char* src_filename, char* out_filename) {
                 }
             }
             else if (strncmp(line, "ifgt ", 5) == 0) {
-                char* p = line + 5;
-                while (*p == ' ') p++;
-                char* left = p;
+				char* p = line + 5;
+				while (*p == ' ') p++;
+				char* left = p;
 
-                while (*p != '\0' && *p != ' ') p++;
-                if (*p != '\0') {
-                    *p = '\0';
-                    p++;
-                    while (*p == ' ') p++;
-                    char* right = p;
+				while (*p != '\0' && *p != ' ') p++;
+				if (*p == '\0') {
+					idx = 0;
+					continue;
+				}
 
-                    while (*p != '\0' && *p != ' ') p++;
-                    if (*p != '\0') {
-                        *p = '\0';
-                        p++;
-                        while (*p == ' ') p++;
-                        char* label = p;
+				*p = '\0';
+				p++;
+				while (*p == ' ') p++;
+				char* right = p;
 
-                        if (left[0] && right[0] && label[0]) {
-                            if (is_number(right)) {
-                                temp_offset += 11 + 6;
-                            } else {
-                                temp_offset += 12 + 6;
-                            }
-                        }
-                    }
-                }
-            }            
+				kx_if_t* f = &if_stack[if_top++];
+				make_if_labels(if_counter++, f->else_label, f->end_label);
+
+				if (is_number(right)) {
+					temp_offset += 11 + 6;
+				} else {
+					temp_offset += 12 + 6;
+				}
+
+				set_label(labels, &label_count, f->else_label, 0);
+			}
+            else if (strcmp(line, "else") == 0) {
+				if (if_top <= 0) continue;
+
+				kx_if_t* f = &if_stack[if_top - 1];
+
+				// jump to end
+				temp_offset += 5;
+
+				// place ELSE label
+				set_label(labels, &label_count, f->else_label, temp_offset);
+			}
+			else if (strcmp(line, "endif") == 0) {
+				if (if_top <= 0) continue;
+
+				kx_if_t* f = &if_stack[--if_top];
+
+				// place END label
+				set_label(labels, &label_count, f->end_label, temp_offset);
+			}
             else if (strncmp(line, "while ", 6) == 0) {
                 char* varname = line + 6;
                 while (*varname == ' ') varname++;
@@ -995,11 +1078,13 @@ void compile_kx_from_file(char* src_filename, char* out_filename) {
     // =========================
     // PASS 2: real codegen
     // =========================
-    while_top = 0;
-    while_counter = 0;
-    idx = 0;
-    offset = 0;
-    offset += emit_prologue(code + offset, temp_offset);
+	while_top = 0;
+	while_counter = 0;
+	if_top = 0;
+	if_counter = 0;
+	idx = 0;
+	offset = 0;
+	offset += emit_prologue(code + offset, temp_offset);
 
     for (uint32_t i = 0; i < src->length; i++) {
         char c = data[i];
@@ -1462,69 +1547,62 @@ void compile_kx_from_file(char* src_filename, char* out_filename) {
                 offset += emit_jl(code + offset, rel);
             }
             else if (strncmp(line, "ifgt ", 5) == 0) {
-                char* p = line + 5;
-                while (*p == ' ') p++;
-                char* left = p;
+				char* p = line + 5;
+				while (*p == ' ') p++;
+				char* left = p;
 
-                while (*p != '\0' && *p != ' ') p++;
-                if (*p == '\0') {
-                    terminal_print("Compiler Error: Invalid ifgt syntax\n");
-                    idx = 0;
-                    continue;
-                }
+				while (*p != '\0' && *p != ' ') p++;
+				if (*p == '\0') {
+					terminal_print("Compiler Error: Invalid ifgt syntax\n");
+					idx = 0;
+					continue;
+				}
 
-                *p = '\0';
-                p++;
-                while (*p == ' ') p++;
-                char* right = p;
+				*p = '\0';
+				p++;
+				while (*p == ' ') p++;
+				char* right = p;
 
-                while (*p != '\0' && *p != ' ') p++;
-                if (*p == '\0') {
-                    terminal_print("Compiler Error: Invalid ifgt syntax\n");
-                    idx = 0;
-                    continue;
-                }
+				int left_idx = find_var(vars, var_count, left);
+				if (left_idx < 0) {
+					terminal_print("Compiler Error: Unknown variable\n");
+					idx = 0;
+					continue;
+				}
 
-                *p = '\0';
-                p++;
-                while (*p == ' ') p++;
-                char* label = p;
+				// IF BLOCK
+				kx_if_t* f = &if_stack[if_top++];
+				make_if_labels(if_counter++, f->else_label, f->end_label);
 
-                int left_idx = find_var(vars, var_count, left);
-                int label_idx = find_label(labels, label_count, label);
+				// cmp
+				if (is_number(right)) {
+					offset += emit_cmp_var_imm(code + offset,
+						                       vars[left_idx].data_offset,
+						                       str_to_uint(right));
+				} else {
+					int right_idx = find_var(vars, var_count, right);
+					if (right_idx < 0) {
+						terminal_print("Compiler Error: Unknown variable\n");
+						idx = 0;
+						continue;
+					}
 
-                if (left_idx < 0) {
-                    terminal_print("Compiler Error: Unknown variable\n");
-                    idx = 0;
-                    continue;
-                }
+					offset += emit_cmp_var_var(code + offset,
+						                       vars[left_idx].data_offset,
+						                       vars[right_idx].data_offset);
+				}
 
-                if (label_idx < 0) {
-                    terminal_print("Compiler Error: Unknown label\n");
-                    idx = 0;
-                    continue;
-                }
+				// jump to ELSE if NOT greater
+				int else_idx = find_label(labels, label_count, f->else_label);
+				if (else_idx < 0) {
+					terminal_print("Compiler Error: Missing else label\n");
+					idx = 0;
+					continue;
+				}
 
-                if (is_number(right)) {
-                    offset += emit_cmp_var_imm(code + offset,
-                                               vars[left_idx].data_offset,
-                                               str_to_uint(right));
-                } else {
-                    int right_idx = find_var(vars, var_count, right);
-                    if (right_idx < 0) {
-                        terminal_print("Compiler Error: Unknown variable\n");
-                        idx = 0;
-                        continue;
-                    }
-
-                    offset += emit_cmp_var_var(code + offset,
-                                               vars[left_idx].data_offset,
-                                               vars[right_idx].data_offset);
-                }
-
-                int32_t rel = (int32_t)labels[label_idx].offset - (int32_t)(offset + 6);
-                offset += emit_jg(code + offset, rel);
-            }
+				int32_t rel = (int32_t)labels[else_idx].offset - (int32_t)(offset + 6);
+				offset += emit_jle(code + offset, rel);
+			}
             else if (strncmp(line, "while ", 6) == 0) {
                 char* varname = line + 6;
                 while (*varname == ' ') varname++;
@@ -1571,6 +1649,35 @@ void compile_kx_from_file(char* src_filename, char* out_filename) {
                 int32_t rel = (int32_t)labels[end_idx].offset - (int32_t)(offset + 6);
                 offset += emit_je(code + offset, rel);
             }
+            ////else handling
+			else if (strcmp(line, "else") == 0) {
+				if (if_top <= 0) {
+					terminal_print("Compiler Error: else without if\n");
+					idx = 0;
+					continue;
+				}
+
+				kx_if_t* f = &if_stack[if_top - 1];
+
+				int end_idx = find_label(labels, label_count, f->end_label);
+				if (end_idx < 0) {
+					terminal_print("Compiler Error: Missing end label\n");
+					idx = 0;
+					continue;
+				}
+
+				int32_t rel = (int32_t)labels[end_idx].offset - (int32_t)(offset + 5);
+				offset += emit_jump(code + offset, rel);
+			}
+			else if (strcmp(line, "endif") == 0) {
+				if (if_top <= 0) {
+					terminal_print("Compiler Error: endif without if\n");
+					idx = 0;
+					continue;
+				}
+
+				if_top--;
+			}
             else if (strcmp(line, "endwhile") == 0) {
                 if (while_top <= 0) {
                     terminal_print("Compiler Error: endwhile without while\n");
