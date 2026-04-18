@@ -872,68 +872,9 @@ void compile_kx_from_file(char* src_filename, char* out_filename) {
                     temp_offset += 5; // jump rel32
                 }
             } 
-            else if (strncmp(line, "ifeq ", 5) == 0) {
-                char* p = line + 5;
-                while (*p == ' ') p++;
-                char* left = p;
-
-                while (*p != '\0' && *p != ' ') p++;
-                if (*p != '\0') {
-                    *p = '\0';
-                    p++;
-                    while (*p == ' ') p++;
-                    char* right = p;
-
-                    while (*p != '\0' && *p != ' ') p++;
-                    if (*p != '\0') {
-                        *p = '\0';
-                        p++;
-                        while (*p == ' ') p++;
-                        char* label = p;
-
-                        if (left[0] && right[0] && label[0]) {
-                            if (is_number(right)) {
-                                temp_offset += 11 + 6;
-                            } else {
-                                temp_offset += 12 + 6;
-                            }
-                        }
-                    }
-                }
-            }
-            else if (strncmp(line, "iflt ", 5) == 0) {
-                char* p = line + 5;
-                while (*p == ' ') p++;
-                char* left = p;
-
-                while (*p != '\0' && *p != ' ') p++;
-                if (*p != '\0') {
-                    *p = '\0';
-                    p++;
-                    while (*p == ' ') p++;
-                    char* right = p;
-
-                    while (*p != '\0' && *p != ' ') p++;
-                    if (*p != '\0') {
-                        *p = '\0';
-                        p++;
-                        while (*p == ' ') p++;
-                        char* label = p;
-
-                        if (left[0] && right[0] && label[0]) {
-                            if (is_number(right)) {
-                                temp_offset += 11 + 6;
-                            } else {
-                                temp_offset += 12 + 6;
-                            }
-                        }
-                    }
-                }
-            }
-            else if (strncmp(line, "ifgt ", 5) == 0) {
+            else if (strncmp(line, "ifeq ", 5) == 0 || strncmp(line, "iflt ", 5) == 0) {
 				char* p = line + 5;
 				while (*p == ' ') p++;
-				char* left = p;
 
 				while (*p != '\0' && *p != ' ') p++;
 				if (*p == '\0') {
@@ -945,7 +886,31 @@ void compile_kx_from_file(char* src_filename, char* out_filename) {
 				p++;
 				while (*p == ' ') p++;
 				char* right = p;
+				kx_if_t* f = &if_stack[if_top++];
+				make_if_labels(if_counter++, f->else_label, f->end_label);
 
+				if (is_number(right)) {
+					temp_offset += 11 + 6;
+				} else {
+					temp_offset += 12 + 6;
+				}
+
+				set_label(labels, &label_count, f->else_label, 0);
+			}
+            else if (strncmp(line, "ifgt ", 5) == 0) {
+				char* p = line + 5;
+				while (*p == ' ') p++;
+
+				while (*p != '\0' && *p != ' ') p++;
+				if (*p == '\0') {
+					idx = 0;
+					continue;
+				}
+
+				*p = '\0';
+				p++;
+				while (*p == ' ') p++;
+				char* right = p;
 				kx_if_t* f = &if_stack[if_top++];
 				make_if_labels(if_counter++, f->else_label, f->end_label);
 
@@ -1418,54 +1383,39 @@ void compile_kx_from_file(char* src_filename, char* out_filename) {
                 int32_t rel = (int32_t)labels[end_idx].offset - (int32_t)(offset + 5);
                 offset += emit_jump(code + offset, rel);
             }
-            else if (strncmp(line, "ifeq ", 5) == 0) {
-                char* p = line + 5;
-                while (*p == ' ') p++;
-                char* left = p;
+			else if (strncmp(line, "iflt ", 5) == 0) {
+				char* p = line + 5;
+				while (*p == ' ') p++;
+				char* left = p;
 
-                while (*p != '\0' && *p != ' ') p++;
-                if (*p == '\0') {
-                    terminal_print("Compiler Error: Invalid ifeq syntax\n");
-                    idx = 0;
-                    continue;
-                }
+				while (*p != '\0' && *p != ' ') p++;
+				if (*p == '\0') {
+					terminal_print("Compiler Error: Invalid iflt syntax\n");
+					idx = 0;
+					continue;
+				}
 
-                *p = '\0';
-                p++;
-                while (*p == ' ') p++;
-                char* right = p;
+				*p = '\0';
+				p++;
+				while (*p == ' ') p++;
+				char* right = p;
 
-                while (*p != '\0' && *p != ' ') p++;
-                if (*p == '\0') {
-                    terminal_print("Compiler Error: Invalid ifeq syntax\n");
-                    idx = 0;
-                    continue;
-                }
-
-                *p = '\0';
-                p++;
-                while (*p == ' ') p++;
-                char* label = p;
-
-                int left_idx = find_var(vars, var_count, left);
-				int label_idx = find_label(labels, label_count, label);
-
+				int left_idx = find_var(vars, var_count, left);
 				if (left_idx < 0) {
 					terminal_print("Compiler Error: Unknown variable\n");
 					idx = 0;
 					continue;
 				}
 
-				if (label_idx < 0) {
-					terminal_print("Compiler Error: Unknown label\n");
-					idx = 0;
-					continue;
-				}
+				// IF BLOCK
+				kx_if_t* f = &if_stack[if_top++];
+				make_if_labels(if_counter++, f->else_label, f->end_label);
 
+				// cmp
 				if (is_number(right)) {
 					offset += emit_cmp_var_imm(code + offset,
-								               vars[left_idx].data_offset,
-								               str_to_uint(right));
+						                       vars[left_idx].data_offset,
+						                       str_to_uint(right));
 				} else {
 					int right_idx = find_var(vars, var_count, right);
 					if (right_idx < 0) {
@@ -1475,76 +1425,135 @@ void compile_kx_from_file(char* src_filename, char* out_filename) {
 					}
 
 					offset += emit_cmp_var_var(code + offset,
+						                       vars[left_idx].data_offset,
+						                       vars[right_idx].data_offset);
+				}
+
+				// jump to ELSE if NOT less
+				int else_idx = find_label(labels, label_count, f->else_label);
+				if (else_idx < 0) {
+					terminal_print("Compiler Error: Missing else label\n");
+					idx = 0;
+					continue;
+				}
+
+				int32_t rel = (int32_t)labels[else_idx].offset - (int32_t)(offset + 6);
+				offset += emit_jge(code + offset, rel);
+			}
+            else if (strncmp(line, "ifeq ", 5) == 0) {
+				char* p = line + 5;
+				while (*p == ' ') p++;
+				char* left = p;
+
+				while (*p != '\0' && *p != ' ') p++;
+				if (*p == '\0') {
+					terminal_print("Compiler Error: Invalid ifeq syntax\n");
+					idx = 0;
+					continue;
+				}
+
+				*p = '\0';
+				p++;
+				while (*p == ' ') p++;
+				char* right = p;
+
+				int left_idx = find_var(vars, var_count, left);
+				if (left_idx < 0) {
+					terminal_print("Compiler Error: Unknown variable\n");
+					idx = 0;
+					continue;
+				}
+
+				// IF BLOCK
+				kx_if_t* f = &if_stack[if_top++];
+				make_if_labels(if_counter++, f->else_label, f->end_label);
+
+				// cmp
+				if (is_number(right)) {
+					offset += emit_cmp_var_imm(code + offset,
+						                       vars[left_idx].data_offset,
+						                       str_to_uint(right));
+				} else {
+					int right_idx = find_var(vars, var_count, right);
+					if (right_idx < 0) {
+						terminal_print("Compiler Error: Unknown variable\n");
+						idx = 0;
+						continue;
+					}
+
+					offset += emit_cmp_var_var(code + offset,
+						                       vars[left_idx].data_offset,
+						                       vars[right_idx].data_offset);
+				}
+
+				// jump to ELSE if NOT equal
+				int else_idx = find_label(labels, label_count, f->else_label);
+				if (else_idx < 0) {
+					terminal_print("Compiler Error: Missing else label\n");
+					idx = 0;
+					continue;
+				}
+
+				int32_t rel = (int32_t)labels[else_idx].offset - (int32_t)(offset + 6);
+				offset += emit_jne(code + offset, rel);
+			}
+			else if (strncmp(line, "ifeq ", 5) == 0) {
+				char* p = line + 5;
+				while (*p == ' ') p++;
+				char* left = p;
+
+				while (*p != '\0' && *p != ' ') p++;
+				if (*p == '\0') {
+					terminal_print("Compiler Error: Invalid ifeq syntax\n");
+					idx = 0;
+					continue;
+				}
+				*p = '\0';
+				p++;
+				while (*p == ' ') p++;
+				char* right = p;
+
+				while (*p != '\0' && *p != ' ') p++;
+				if (*p == '\0') {
+					terminal_print("Compiler Error: Invalid ifeq syntax\n");
+					idx = 0;
+					continue;
+				}
+				*p = '\0';
+				p++;
+				while (*p == ' ') p++;
+				char* label = p;
+
+                int left_idx = find_var(vars, var_count, left);
+				int label_idx = find_label(labels, label_count, label);
+
+				if (left_idx < 0) {
+					terminal_print("Compiler Error: Unknown variable\n");
+					idx = 0;
+					continue;
+				}
+				if (label_idx < 0) {
+					terminal_print("Compiler Error: Unknown label\n");
+					idx = 0;
+					continue;
+				}
+				if (is_number(right)) {
+					offset += emit_cmp_var_imm(code + offset,
+	                vars[left_idx].data_offset,
+	                str_to_uint(right));
+				} else {
+					int right_idx = find_var(vars, var_count, right);
+					if (right_idx < 0) {
+						terminal_print("Compiler Error: Unknown variable\n");
+						idx = 0;
+						continue;
+					}
+					offset += emit_cmp_var_var(code + offset,
 								               vars[left_idx].data_offset,
 								               vars[right_idx].data_offset);
 				}
-
 				int32_t rel = (int32_t)labels[label_idx].offset - (int32_t)(offset + 6);
 				offset += emit_je(code + offset, rel);
-            }
-            else if (strncmp(line, "iflt ", 5) == 0) {
-                char* p = line + 5;
-                while (*p == ' ') p++;
-                char* left = p;
-
-                while (*p != '\0' && *p != ' ') p++;
-                if (*p == '\0') {
-                    terminal_print("Compiler Error: Invalid iflt syntax\n");
-                    idx = 0;
-                    continue;
-                }
-
-                *p = '\0';
-                p++;
-                while (*p == ' ') p++;
-                char* right = p;
-
-                while (*p != '\0' && *p != ' ') p++;
-                if (*p == '\0') {
-                    terminal_print("Compiler Error: Invalid iflt syntax\n");
-                    idx = 0;
-                    continue;
-                }
-
-                *p = '\0';
-                p++;
-                while (*p == ' ') p++;
-                char* label = p;
-
-				int left_idx = find_var(vars, var_count, left);
-                int label_idx = find_label(labels, label_count, label);
-
-                if (left_idx < 0) {
-                    terminal_print("Compiler Error: Unknown variable\n");
-                    idx = 0;
-                    continue;
-                }
-
-                if (label_idx < 0) {
-                    terminal_print("Compiler Error: Unknown label\n");
-                    idx = 0;
-                    continue;
-                }
-
-                if (is_number(right)) {
-                    offset += emit_cmp_var_imm(code + offset,
-                                               vars[left_idx].data_offset,
-                                               str_to_uint(right));
-                } else {
-                    int right_idx = find_var(vars, var_count, right);
-                    if (right_idx < 0) {
-                        terminal_print("Compiler Error: Unknown variable\n");
-                        idx = 0;
-                        continue;
-                    }
-
-                    offset += emit_cmp_var_var(code + offset,
-                                               vars[left_idx].data_offset,
-                                               vars[right_idx].data_offset);
-                }
-
-                int32_t rel = (int32_t)labels[label_idx].offset - (int32_t)(offset + 6);
-                offset += emit_jl(code + offset, rel);
             }
             else if (strncmp(line, "ifgt ", 5) == 0) {
 				char* p = line + 5;
