@@ -18,6 +18,7 @@ uint32_t emit_store_imm(uint8_t* buf, uint32_t data_offset, uint32_t value);
 uint32_t emit_add_imm(uint8_t* buf, uint32_t data_offset, uint32_t value);
 uint32_t emit_sub_imm(uint8_t* buf, uint32_t data_offset, uint32_t value);
 uint32_t emit_print_var(uint8_t* buf, uint32_t data_offset);
+uint32_t emit_input_var(uint8_t* buf, uint32_t data_offset);
 uint32_t emit_sleep_var(uint8_t* buf, uint32_t data_offset);
 uint32_t emit_push_var(uint8_t* buf, uint32_t data_offset);
 uint32_t emit_pop_var(uint8_t* buf, uint32_t data_offset);

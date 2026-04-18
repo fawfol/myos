@@ -9,6 +9,8 @@ typedef struct {
     char name[32];
     uint32_t value;
     uint32_t data_offset;
+    uint8_t is_string;
+    char str_value[128];
 } kx_var_t;
 
 typedef struct {
@@ -139,17 +141,62 @@ void set_var(kx_var_t* vars, int* var_count, char* name, uint32_t value) {
         memcpy(vars[*var_count].name, name, len);
         vars[*var_count].name[len] = '\0';
 
-        vars[*var_count].value = value;
+		vars[*var_count].is_string = 0;
+		memset(vars[*var_count].str_value, 0, 128);
         (*var_count)++;
     }
 }
+void set_str_var(kx_var_t* vars, int* var_count, char* name, char* value) {
+    int idx = find_var(vars, *var_count, name);
 
-void assign_var_offsets(kx_var_t* vars, int var_count) {
-    for (int i = 0; i < var_count; i++) {
-        vars[i].data_offset = i * 4;
+    if (idx >= 0) {
+        vars[idx].is_string = 1;
+        memset(vars[idx].str_value, 0, 128);
+
+        uint32_t len = strlen(value);
+        if (len > 127) len = 127;
+
+        memcpy(vars[idx].str_value, value, len);
+        vars[idx].str_value[len] = '\0';
+        return;
+    }
+
+    if (*var_count < 64) {
+        memset(vars[*var_count].name, 0, 32);
+
+        uint32_t len = strlen(name);
+        if (len > 31) len = 31;
+
+        memcpy(vars[*var_count].name, name, len);
+        vars[*var_count].name[len] = '\0';
+
+        vars[*var_count].value = 0;
+        vars[*var_count].is_string = 1;
+
+        memset(vars[*var_count].str_value, 0, 128);
+
+        uint32_t vlen = strlen(value);
+        if (vlen > 127) vlen = 127;
+
+        memcpy(vars[*var_count].str_value, value, vlen);
+        vars[*var_count].str_value[vlen] = '\0';
+
+        (*var_count)++;
     }
 }
+void assign_var_offsets(kx_var_t* vars, int var_count) {
+    uint32_t offset = 0;
 
+    for (int i = 0; i < var_count; i++) {
+        vars[i].data_offset = offset;
+
+        if (vars[i].is_string) {
+            offset += 128;
+        } else {
+            offset += 4;
+        }
+    }
+}
 uint32_t emit_sleep(uint8_t* buf, uint32_t sec) {
     uint8_t code[] = {
         0xBB,0,0,0,0,
@@ -210,7 +257,21 @@ uint32_t emit_beep(uint8_t* buf) {
     memcpy(buf, code, sizeof(code));
     return sizeof(code);
 }
+uint32_t emit_print_str_var(uint8_t* buf, uint32_t data_offset) {
+    // lea ebx, [edx+disp32]
+    // mov eax, 1
+    // int 0x80
+    uint8_t code[] = {
+        0x8D, 0x9A, 0,0,0,0,
+        0xB8, 0x01,0x00,0x00,0x00,
+        0xCD, 0x80
+    };
 
+    memcpy(buf, code, sizeof(code));
+    memcpy(buf + 2, &data_offset, 4);
+
+    return sizeof(code); // 13 bytes
+}
 uint32_t emit_print(uint8_t* buf, char* msg) {
     uint32_t len = strlen(msg) + 1;
 
@@ -235,7 +296,6 @@ uint32_t emit_print(uint8_t* buf, char* msg) {
 
     return sizeof(template) + len;
 }
-
 uint32_t emit_print_num(uint8_t* buf, uint32_t value) {
     char num_str[16];
     int i = 0;
@@ -352,6 +412,22 @@ uint32_t emit_mov_var(uint8_t* buf, uint32_t dst_offset, uint32_t src_offset) {
     memcpy(buf + 8, &dst_offset, 4);
 
     return sizeof(code); // 12 bytes
+}
+uint32_t emit_input_var(uint8_t* buf, uint32_t data_offset) {
+    // mov eax, 8        ; syscall number
+    // int 0x80
+    // mov [edx+disp32], ebx   ; store result
+
+    uint8_t code[] = {
+        0xB8, 0x08, 0x00, 0x00, 0x00,   // mov eax, 8
+        0xCD, 0x80,                     // int 0x80
+        0x89, 0x9A, 0,0,0,0             // mov [edx+disp32], ebx
+    };
+
+    memcpy(buf, code, sizeof(code));
+    memcpy(buf + 9, &data_offset, 4);
+
+    return sizeof(code); // 13 bytes
 }
 uint32_t emit_print_var(uint8_t* buf, uint32_t data_offset) {
     // mov ebx, [edx+disp32]
@@ -756,7 +832,29 @@ void compile_kx_from_file(char* src_filename, char* out_filename) {
                     }
                 }
             }
-            
+			else if (strncmp(line, "letstr ", 7) == 0) {
+				char* p = line + 7;
+
+				while (*p == ' ') p++;
+				char* name = p;
+
+				while (*p != '\0' && *p != ' ') p++;
+
+				if (*p != '\0') {
+					*p = '\0';
+					p++;
+
+					while (*p == ' ') p++;
+					char* value = p;
+
+					if (name[0] != '\0' && value[0] != '\0') {
+						set_str_var(vars, &var_count, name, value);
+					}
+				}
+			}
+			else if (strncmp(line, "inputnum ", 9) == 0) {
+				temp_offset += 13;
+			}
             // add
             else if (strncmp(line, "add ", 4) == 0) {
                 char* p = line + 4;
@@ -786,7 +884,6 @@ void compile_kx_from_file(char* src_filename, char* out_filename) {
                     }
                 }
             }
-
             // sub
             else if (strncmp(line, "sub ", 4) == 0) {
                 char* p = line + 4;
@@ -816,8 +913,7 @@ void compile_kx_from_file(char* src_filename, char* out_filename) {
                     }
                 }
             }
-
-            // print
+		        // print
             else if (strncmp(line, "print ", 6) == 0) {
                 char* msg = line + 6;
                 while (*msg == ' ') msg++;
@@ -1021,7 +1117,14 @@ void compile_kx_from_file(char* src_filename, char* out_filename) {
     }
 	    assign_var_offsets(vars, var_count);
 
-    uint32_t data_size = var_count * 4;
+	uint32_t data_size = 0;
+	for (int i = 0; i < var_count; i++) {
+		if (vars[i].is_string) {
+		    data_size += 128;
+		} else {
+		    data_size += 4;
+		}
+	}
     uint8_t* data_section = 0;
 
     if (data_size > 0) {
@@ -1034,9 +1137,13 @@ void compile_kx_from_file(char* src_filename, char* out_filename) {
 
         memset(data_section, 0, data_size);
 
-        for (int i = 0; i < var_count; i++) {
-            memcpy(data_section + vars[i].data_offset, &vars[i].value, 4);
-        }
+		for (int i = 0; i < var_count; i++) {
+			if (vars[i].is_string) {
+				memcpy(data_section + vars[i].data_offset, vars[i].str_value, 128);
+			} else {
+				memcpy(data_section + vars[i].data_offset, &vars[i].value, 4);
+			}
+		}
     }
 
 
@@ -1219,7 +1326,20 @@ void compile_kx_from_file(char* src_filename, char* out_filename) {
                                          vars[var_idx].data_offset,
                                          str_to_uint(value_str));
             }
+			else if (strncmp(line, "inputnum ", 9) == 0) {
+				char* name = line + 9;
+				while (*name == ' ') name++;
 
+				int var_idx = find_var(vars, var_count, name);
+				if (var_idx < 0) {
+					terminal_print("Compiler Error: Unknown variable\n");
+					idx = 0;
+					continue;
+				}
+
+				offset += emit_input_var(code + offset,
+						                 vars[var_idx].data_offset);
+			}
             // add
             else if (strncmp(line, "add ", 4) == 0) {
                 char* p = line + 4;
@@ -1305,17 +1425,21 @@ void compile_kx_from_file(char* src_filename, char* out_filename) {
             }
             // print
             else if (strncmp(line, "print ", 6) == 0) {
-                char* arg = line + 6;
-                while (*arg == ' ') arg++;
+				char* arg = line + 6;
+				while (*arg == ' ') arg++;
 
-                int var_idx = find_var(vars, var_count, arg);
+				int var_idx = find_var(vars, var_count, arg);
 
-                if (var_idx >= 0) {
-                    offset += emit_print_var(code + offset, vars[var_idx].data_offset);
-                } else {
-                    offset += emit_print(code + offset, arg);
-                }
-            }
+				if (var_idx >= 0) {
+					if (vars[var_idx].is_string) {
+						offset += emit_print_str_var(code + offset, vars[var_idx].data_offset);
+					} else {
+						offset += emit_print_var(code + offset, vars[var_idx].data_offset);
+					}
+				} else {
+					offset += emit_print(code + offset, arg);
+				}
+			}
             else if (strncmp(line, "printnl ", 8) == 0) {
                 char* arg = line + 8;
                 while (*arg == ' ') arg++;
@@ -1323,11 +1447,14 @@ void compile_kx_from_file(char* src_filename, char* out_filename) {
                 int var_idx = find_var(vars, var_count, arg);
 
                 if (var_idx >= 0) {
-                    offset += emit_print_var(code + offset, vars[var_idx].data_offset);
-                } else {
-                    offset += emit_print(code + offset, arg);
-                }
-
+					if (vars[var_idx].is_string) {
+						offset += emit_print_str_var(code + offset, vars[var_idx].data_offset);
+					} else {
+						offset += emit_print_var(code + offset, vars[var_idx].data_offset);
+					}
+				} else {
+					offset += emit_print(code + offset, arg);
+				}
                 offset += emit_print(code + offset, "\n");
             }
 

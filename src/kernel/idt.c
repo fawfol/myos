@@ -1,4 +1,5 @@
 #include <stdint.h>
+#include <stdbool.h>
 #include "idt.h"
 #include "shell.h"
 #include "memory.h"
@@ -15,11 +16,15 @@ typedef struct registers {
     uint32_t eip, cs, eflags, useresp, ss;
 } registers_t;
 
+extern volatile bool shell_is_blocking;
+
 //external assembly functions
 extern void idt_flush(uint32_t);
 extern void isr33();
 extern void isr32();
 extern void syscall_handler();
+extern char keyboard_get_last_char();
+extern volatile bool char_available;
 
 //exception handlers
 extern void isr0(); extern void isr1(); extern void isr2(); extern void isr3();
@@ -31,7 +36,6 @@ extern void isr20(); extern void isr21(); extern void isr22(); extern void isr23
 extern void isr24(); extern void isr25(); extern void isr26(); extern void isr27();
 extern void isr28(); extern void isr29(); extern void isr30(); extern void isr31();
 extern void isr44();
-
 
 /*helper fcuntion */
 static void idt_set_gate(uint8_t num, uint32_t base, uint16_t sel, uint8_t flags) {
@@ -75,7 +79,8 @@ void init_idt() {
 /*system call gate init */
 void init_syscalls() {
     // 0xEE sets Ring 3 privilege so user programs can use it
-    idt_set_gate(0x80, (uint32_t)syscall_handler, 0x08, 0xEE);
+    // butttttt 0xEE = ring 3 interrupt gatec // 0xEF = ring 3 trap gate
+    idt_set_gate(0x80, (uint32_t)syscall_handler, 0x08, 0xEF);
 }
 
 /*dispatcher bridge */ 
@@ -84,12 +89,10 @@ void syscall_dispatcher(registers_t *regs) {
         case 1: // SYS_PRINT
             terminal_print((char*)regs->ebx);
             break;
-
         case 2: { // SYS_READ: ebx = filename, ecx = destination buffer
             char* name = (char*)regs->ebx;
             void* buffer = (void*)regs->ecx;
             vfs_node_t* file = vfs_find(vfs_root, name);
-
             if (file) {
                 memcpy(buffer, (void*)file->ptr, file->length);
                 regs->eax = file->length; // return size read
@@ -98,29 +101,24 @@ void syscall_dispatcher(registers_t *regs) {
             }
             break;
         }
-
         case 3: { // SYS_WRITE: ebx = filename, ecx = data pointer, edx = size
             char* name = (char*)regs->ebx;
             char* data = (char*)regs->ecx;
             uint32_t size = regs->edx;
-
             vfs_create(name, data, size);
             regs->eax = 1;
             break;
         }
-
         case 4: { // SYS_EXIT
 			terminal_print("\n[Program exited]\n");
 			break;
 		}
-
 		case 5: { // SYS_SLEEP: ebx = seconds
 			uint32_t seconds = regs->ebx;
 			sleep(seconds);
 			regs->eax = 1;
 			break;
 		}
-
 		case 6: { // SYS_BEEP
 			beep(750, 200);
 			regs->eax = 1;
@@ -131,7 +129,71 @@ void syscall_dispatcher(registers_t *regs) {
             regs->eax = 1;
             break;
         }
+        case 8: { // SYS_INPUTNUM
+            char buf[32];
+            int idx = 0;
 
+            for (int i = 0; i < 32; i++) {
+                buf[i] = 0;
+            }
+
+            // stop shell from also handling these keys
+            shell_is_blocking = true;
+
+            // flush any stale key left over (especially Enter used to launch the program)
+            while (char_available) {
+                keyboard_get_last_char();
+            }
+
+            terminal_print("> ");
+
+            while (1) {
+                while (!char_available) {
+                    // wait for a key
+                }
+
+                char c = keyboard_get_last_char();
+
+                if (c == '\n' || c == '\r') {
+                    if (idx == 0) {
+                        // ignore empty newline until user actually types digits
+                        continue;
+                    }
+                    break;
+                }
+
+                if (c == '\b') {
+                    if (idx > 0) {
+                        idx--;
+                    }
+                    continue;
+                }
+
+                if (c >= '0' && c <= '9') {
+                    if (idx < 31) {
+                        buf[idx++] = c;
+
+                        char out[2];
+                        out[0] = c;
+                        out[1] = '\0';
+                        terminal_print(out);
+                    }
+                }
+            }
+
+            terminal_print("\n");
+
+            uint32_t value = 0;
+            for (int i = 0; i < idx; i++) {
+                value = value * 10 + (buf[i] - '0');
+            }
+
+            shell_is_blocking = false;
+
+            regs->ebx = value;
+            regs->eax = 1;
+            break;
+        }
         default:
             terminal_print("KalsangOS: Unknown Syscall\n");
             break;
