@@ -375,6 +375,7 @@ void print_help() {
     terminal_print("  cat <file>      - Read a text file from the FAT32 disk\n");
     terminal_print("  lsram           - List files in the temporary RAMDisk\n");
     terminal_print("  catram <file>   - Read a text file from the RAMDisk\n");
+    terminal_print("  rmram <file>    - delete a file from the RAMDisk\n");
     terminal_print("  edit <file>     - Open the text editor to create/modify a file\n\n");
     terminal_print("  rm <file>       - delete a file from the FAT32 disk\n");
     terminal_print("  write <file>    - create a file in RAMDisk\n");
@@ -630,11 +631,15 @@ void execute_command() {
 		    terminal_print("\n");
 		}
 	}
-
     else if (strncmp(key_buffer, "cat ", 4) == 0) {
         char* filename = key_buffer + 4;
         fat32_read_file(filename);
     }
+	else if (strncmp(key_buffer, "rmram ", 6) == 0) {
+		char* filename = key_buffer + 6;
+		vfs_delete(filename);
+		terminal_print("RAM file deleted.\n");
+	}
     else if (strncmp(key_buffer, "rm ", 3) == 0) {
         char* filename = key_buffer + 3;
         fat32_delete_file(filename);

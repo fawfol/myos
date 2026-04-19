@@ -194,6 +194,124 @@ void syscall_dispatcher(registers_t *regs) {
             regs->eax = 1;
             break;
         }
+        case 9: { // SYS_INPUTSTR
+            char* dest = (char*)regs->ebx;
+            int idx = 0;
+
+            shell_is_blocking = true;
+
+            // flush stale key
+            while (char_available) {
+                keyboard_get_last_char();
+            }
+
+            terminal_print("> ");
+
+            while (1) {
+                while (!char_available) {
+                    // wait
+                }
+
+                char c = keyboard_get_last_char();
+
+                if (c == '\n' || c == '\r') {
+                    break;
+                }
+
+                if (c == '\b') {
+                    if (idx > 0) {
+                        idx--;
+                        dest[idx] = '\0';
+                    }
+                    continue;
+                }
+
+                if (c >= 32 && c <= 126) {
+                    if (idx < 127) {
+                        dest[idx++] = c;
+                        dest[idx] = '\0';
+
+                        char out[2];
+                        out[0] = c;
+                        out[1] = '\0';
+                        terminal_print(out);
+                    }
+                }
+            }
+
+            dest[idx] = '\0';
+            terminal_print("\n");
+
+            shell_is_blocking = false;
+            regs->eax = 1;
+            break;
+        }
+        case 10: { // SYS_STREQ: ebx = str1, ecx = str2
+            char* a = (char*)regs->ebx;
+            char* b = (char*)regs->ecx;
+
+            uint32_t equal = 1;
+            int i = 0;
+
+            while (1) {
+                if (a[i] != b[i]) {
+                    equal = 0;
+                    break;
+                }
+
+                if (a[i] == '\0') {
+                    break;
+                }
+
+                i++;
+            }
+
+            regs->ebx = equal;  // 1 if equal, 0 if not
+            regs->eax = 1;
+            break;
+        }
+        case 11: { // SYS_WRITEFILE_STR
+            char* filename = (char*)regs->ebx;
+            char* content  = (char*)regs->ecx;
+
+            uint32_t len = 0;
+            while (content[len] != '\0') {
+                len++;
+            }
+
+            vfs_create(filename, content, len);
+            regs->eax = 1;
+            break;
+        }
+        case 12: { // SYS_READFILE_STR
+            char* filename = (char*)regs->ebx;
+            char* outbuf   = (char*)regs->ecx;
+
+            vfs_node_t* file = vfs_find(vfs_root, filename);
+
+            if (!file) {
+                outbuf[0] = '\0';
+                regs->eax = 0;
+                break;
+            }
+
+            uint32_t len = file->length;
+            if (len > 127) len = 127;
+
+            memcpy(outbuf, (char*)file->ptr, len);
+            outbuf[len] = '\0';
+
+            regs->eax = 1;
+            break;
+        }
+        case 13: { // SYS_RMFILE
+            char* filename = (char*)regs->ebx;
+
+            vfs_delete(filename);
+
+            regs->eax = 1;
+            break;
+        }
         default:
             terminal_print("KalsangOS: Unknown Syscall\n");
             break;

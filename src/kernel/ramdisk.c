@@ -119,6 +119,31 @@ void vfs_create(char* name, char* data, uint32_t size) {
     node_count++;
 }
 
+void vfs_delete(char* name) {
+    vfs_node_t* prev = 0;
+    vfs_node_t* curr = vfs_root;
+
+    while (curr != 0) {
+        if (strcmp(curr->name, name) == 0) {
+            if (prev == 0) {
+                vfs_root = curr->next;
+            } else {
+                prev->next = curr->next;
+            }
+
+            if (curr->ptr) {
+                free(curr->ptr);
+            }
+
+            free(curr);
+            return;
+        }
+
+        prev = curr;
+        curr = curr->next;
+    }
+}
+
 vfs_node_t* vfs_find(vfs_node_t* root, char* name) {
     vfs_node_t* current = root;
 

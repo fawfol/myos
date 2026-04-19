@@ -37,6 +37,7 @@ extern int node_count;
 
 void init_ramdisk(uint32_t location);
 void vfs_create(char* name, char* data, uint32_t size);
+void vfs_delete(char* name);
 vfs_node_t* vfs_find(vfs_node_t* root, char* name);
 
 #endif

@@ -10,7 +10,7 @@ typedef struct {
     uint32_t value;
     uint32_t data_offset;
     uint8_t is_string;
-    char str_value[128];
+    char* str_value;
 } kx_var_t;
 
 typedef struct {
@@ -47,7 +47,39 @@ int find_label(kx_label_t* labels, int count, char* name) {
     }
     return -1;
 }
+int is_number(char* s) {
+    if (!s || s[0] == '\0') return 0;
 
+    for (int i = 0; s[i] != '\0'; i++) {
+        if (s[i] < '0' || s[i] > '9') return 0;
+    }
+    return 1;
+}
+int find_var(kx_var_t* vars, int var_count, char* name) {
+    for (int i = 0; i < var_count; i++) {
+        if (strcmp(vars[i].name, name) == 0) {
+            return i;
+        }
+    }
+    return -1;
+}
+int is_quoted(char* str) {
+    int len = strlen(str);
+    return (len >= 2 && str[0] == '"' && str[len - 1] == '"');
+}
+void strip_quotes(char* dest, char* src) {
+    int len = strlen(src);
+    if (len < 2) {
+        dest[0] = '\0';
+        return;
+    }
+
+    int j = 0;
+    for (int i = 1; i < len - 1; i++) {
+        dest[j++] = src[i];
+    }
+    dest[j] = '\0';
+}
 void set_label(kx_label_t* labels, int* count, char* name, uint32_t offset) {
     int existing = find_label(labels, *count, name);
     if (existing >= 0) {
@@ -105,81 +137,62 @@ void make_if_labels(int id, char* else_out, char* end_out) {
     while (d > 0) end_out[pos++] = digits[--d];
     end_out[pos] = '\0';
 }
-
-int is_number(char* s) {
-    if (!s || s[0] == '\0') return 0;
-
-    for (int i = 0; s[i] != '\0'; i++) {
-        if (s[i] < '0' || s[i] > '9') return 0;
-    }
-    return 1;
-}
-
-int find_var(kx_var_t* vars, int var_count, char* name) {
-    for (int i = 0; i < var_count; i++) {
-        if (strcmp(vars[i].name, name) == 0) {
-            return i;
-        }
-    }
-    return -1;
-}
-
 void set_var(kx_var_t* vars, int* var_count, char* name, uint32_t value) {
     int idx = find_var(vars, *var_count, name);
 
     if (idx >= 0) {
         vars[idx].value = value;
+		vars[idx].is_string = 0;
+		vars[idx].str_value = 0;
         return;
     }
 
     if (*var_count < 64) {
-        memset(vars[*var_count].name, 0, 32);
+		memset(vars[*var_count].name, 0, 32);
 
-        uint32_t len = strlen(name);
-        if (len > 31) len = 31;
+		uint32_t len = strlen(name);
+		if (len > 31) len = 31;
 
-        memcpy(vars[*var_count].name, name, len);
-        vars[*var_count].name[len] = '\0';
+		memcpy(vars[*var_count].name, name, len);
+		vars[*var_count].name[len] = '\0';
 
+		vars[*var_count].value = value;
 		vars[*var_count].is_string = 0;
-		memset(vars[*var_count].str_value, 0, 128);
-        (*var_count)++;
-    }
+		vars[*var_count].str_value = 0;
+
+		(*var_count)++;
+	}
 }
 void set_str_var(kx_var_t* vars, int* var_count, char* name, char* value) {
     int idx = find_var(vars, *var_count, name);
 
+    uint32_t len = strlen(value);
+    char* copy = (char*)malloc(len + 1);
+    if (!copy) return;
+
+    memcpy(copy, value, len);
+    copy[len] = '\0';
+
     if (idx >= 0) {
         vars[idx].is_string = 1;
-        memset(vars[idx].str_value, 0, 128);
-
-        uint32_t len = strlen(value);
-        if (len > 127) len = 127;
-
-        memcpy(vars[idx].str_value, value, len);
-        vars[idx].str_value[len] = '\0';
+        vars[idx].value = 0;
+        vars[idx].str_value = copy;
         return;
     }
 
     if (*var_count < 64) {
         memset(vars[*var_count].name, 0, 32);
 
-        uint32_t len = strlen(name);
-        if (len > 31) len = 31;
+        uint32_t nlen = strlen(name);
+        if (nlen > 31) nlen = 31;
 
-        memcpy(vars[*var_count].name, name, len);
-        vars[*var_count].name[len] = '\0';
+        memcpy(vars[*var_count].name, name, nlen);
+        vars[*var_count].name[nlen] = '\0';
 
         vars[*var_count].value = 0;
+        vars[*var_count].data_offset = 0;
         vars[*var_count].is_string = 1;
-
-        memset(vars[*var_count].str_value, 0, 128);
-
-        uint32_t vlen = strlen(value);
-        if (vlen > 127) vlen = 127;
-
-        memcpy(vars[*var_count].str_value, value, vlen);
-        vars[*var_count].str_value[vlen] = '\0';
+        vars[*var_count].str_value = copy;
 
         (*var_count)++;
     }
@@ -197,19 +210,6 @@ void assign_var_offsets(kx_var_t* vars, int var_count) {
         }
     }
 }
-uint32_t emit_sleep(uint8_t* buf, uint32_t sec) {
-    uint8_t code[] = {
-        0xBB,0,0,0,0,
-        0xB8,5,0,0,0,
-        0xCD,0x80
-    };
-
-    memcpy(buf, code, sizeof(code));
-    memcpy(buf + 1, &sec, 4);
-
-    return sizeof(code);
-}
-
 void make_while_labels(int id, char* start_out, char* end_out) {
     char prefix1[] = "__while_start_";
     char prefix2[] = "__while_end_";
@@ -248,6 +248,69 @@ void make_while_labels(int id, char* start_out, char* end_out) {
     end_out[pos] = '\0';
 }
 
+uint32_t emit_rmfile_str_var(uint8_t* buf, uint32_t filename_offset) {
+    // lea ebx, [edx+filename]
+    // mov eax, 13
+    // int 0x80
+    uint8_t code[] = {
+        0x8D, 0x9A, 0,0,0,0,          // lea ebx, [edx+disp32]
+        0xB8, 0x0D, 0x00, 0x00, 0x00, // mov eax, 13
+        0xCD, 0x80
+    };
+
+    memcpy(buf, code, sizeof(code));
+    memcpy(buf + 2, &filename_offset, 4);
+
+    return sizeof(code); // 13 bytes
+}
+uint32_t emit_writefile_str_var_var(uint8_t* buf, uint32_t filename_offset, uint32_t content_offset) {
+    // lea ebx, [edx+filename]
+    // lea ecx, [edx+content]
+    // mov eax, 11
+    // int 0x80
+    uint8_t code[] = {
+        0x8D, 0x9A, 0,0,0,0,          // lea ebx, [edx+disp32]
+        0x8D, 0x8A, 0,0,0,0,          // lea ecx, [edx+disp32]
+        0xB8, 0x0B, 0x00, 0x00, 0x00, // mov eax, 11
+        0xCD, 0x80                    // int 0x80
+    };
+
+    memcpy(buf, code, sizeof(code));
+    memcpy(buf + 2, &filename_offset, 4);
+    memcpy(buf + 8, &content_offset, 4);
+
+    return sizeof(code); // 19 bytes
+}
+uint32_t emit_readfile_str_var_var(uint8_t* buf, uint32_t filename_offset, uint32_t out_offset) {
+    // lea ebx, [edx+filename]
+    // lea ecx, [edx+outbuf]
+    // mov eax, 12
+    // int 0x80
+    uint8_t code[] = {
+        0x8D, 0x9A, 0,0,0,0,          // lea ebx, [edx+disp32]
+        0x8D, 0x8A, 0,0,0,0,          // lea ecx, [edx+disp32]
+        0xB8, 0x0C, 0x00, 0x00, 0x00, // mov eax, 12
+        0xCD, 0x80                    // int 0x80
+    };
+
+    memcpy(buf, code, sizeof(code));
+    memcpy(buf + 2, &filename_offset, 4);
+    memcpy(buf + 8, &out_offset, 4);
+
+    return sizeof(code); // 19 bytes
+}
+uint32_t emit_sleep(uint8_t* buf, uint32_t sec) {
+    uint8_t code[] = {
+        0xBB,0,0,0,0,
+        0xB8,5,0,0,0,
+        0xCD,0x80
+    };
+
+    memcpy(buf, code, sizeof(code));
+    memcpy(buf + 1, &sec, 4);
+
+    return sizeof(code);
+}
 uint32_t emit_beep(uint8_t* buf) {
     uint8_t code[] = {
         0xB8,6,0,0,0,
@@ -428,6 +491,49 @@ uint32_t emit_input_var(uint8_t* buf, uint32_t data_offset) {
     memcpy(buf + 9, &data_offset, 4);
 
     return sizeof(code); // 13 bytes
+}
+uint32_t emit_input_str_var(uint8_t* buf, uint32_t data_offset) {
+    // lea ebx, [edx+disp32]
+    // mov eax, 9
+    // int 0x80
+    uint8_t code[] = {
+        0x8D, 0x9A, 0,0,0,0,         // lea ebx, [edx+disp32]
+        0xB8, 0x09, 0x00, 0x00, 0x00, // mov eax, 9
+        0xCD, 0x80                    // int 0x80
+    };
+
+    memcpy(buf, code, sizeof(code));
+    memcpy(buf + 2, &data_offset, 4);
+
+    return sizeof(code); // 13 bytes
+}
+uint32_t emit_streq_var_var(uint8_t* buf, uint32_t left_offset, uint32_t right_offset) {
+    // lea ebx, [edx+left]
+    // lea ecx, [edx+right]
+    // mov eax, 10
+    // int 0x80
+    uint8_t code[] = {
+        0x8D, 0x9A, 0,0,0,0,          // lea ebx, [edx+disp32]
+        0x8D, 0x8A, 0,0,0,0,          // lea ecx, [edx+disp32]
+        0xB8, 0x0A, 0x00, 0x00, 0x00, // mov eax, 10
+        0xCD, 0x80                    // int 0x80
+    };
+
+    memcpy(buf, code, sizeof(code));
+    memcpy(buf + 2, &left_offset, 4);
+    memcpy(buf + 8, &right_offset, 4);
+
+    return sizeof(code); // 19 bytes
+}
+
+uint32_t emit_cmp_ebx_zero(uint8_t* buf) {
+    // cmp ebx, 0
+    uint8_t code[] = {
+        0x83, 0xFB, 0x00
+    };
+
+    memcpy(buf, code, sizeof(code));
+    return sizeof(code); // 3 bytes
 }
 uint32_t emit_print_var(uint8_t* buf, uint32_t data_offset) {
     // mov ebx, [edx+disp32]
@@ -745,13 +851,11 @@ void compile_kx_from_file(char* src_filename, char* out_filename) {
 				continue;
 			}
             int len = strlen(line);
-
             // label
             if (len > 0 && line[len - 1] == ':') {
                 line[len - 1] = '\0';
                 set_label(labels, &label_count, line, temp_offset);
             }
-            
             // func
             else if (strncmp(line, "func ", 5) == 0) {
                 char* name = line + 5;
@@ -809,7 +913,15 @@ void compile_kx_from_file(char* src_filename, char* out_filename) {
             else if (strncmp(line, "call ", 5) == 0) {
                 temp_offset += 5;
             }
-
+            else if (strncmp(line, "rmfile ", 7) == 0) {
+				temp_offset += 13;
+			}
+			else if (strncmp(line, "writefile ", 10) == 0) {
+				temp_offset += 19;
+			}
+			else if (strncmp(line, "readfile ", 9) == 0) {
+				temp_offset += 19;
+			}
             // let
             else if (strncmp(line, "let ", 4) == 0) {
                 char* p = line + 4;
@@ -834,25 +946,29 @@ void compile_kx_from_file(char* src_filename, char* out_filename) {
             }
 			else if (strncmp(line, "letstr ", 7) == 0) {
 				char* p = line + 7;
-
 				while (*p == ' ') p++;
 				char* name = p;
-
 				while (*p != '\0' && *p != ' ') p++;
-
-				if (*p != '\0') {
-					*p = '\0';
-					p++;
-
-					while (*p == ' ') p++;
-					char* value = p;
-
-					if (name[0] != '\0' && value[0] != '\0') {
-						set_str_var(vars, &var_count, name, value);
-					}
+				if (*p == '\0') {
+					idx = 0;
+					continue;
+				}
+				*p = '\0';
+				p++;
+				while (*p == ' ') p++;
+				char* value = p;
+				char temp[128];
+				if (is_quoted(value)) {
+					strip_quotes(temp, value);
+					set_str_var(vars, &var_count, name, temp);
+				} else {
+					set_str_var(vars, &var_count, name, value);
 				}
 			}
 			else if (strncmp(line, "inputnum ", 9) == 0) {
+				temp_offset += 13;
+			}
+			else if (strncmp(line, "inputstr ", 9) == 0) {
 				temp_offset += 13;
 			}
             // add
@@ -914,31 +1030,44 @@ void compile_kx_from_file(char* src_filename, char* out_filename) {
                 }
             }
 		        // print
-            else if (strncmp(line, "print ", 6) == 0) {
-                char* msg = line + 6;
-                while (*msg == ' ') msg++;
-
-                int var_idx = find_var(vars, var_count, msg);
-                if (var_idx >= 0) {
-                    temp_offset += 13;
-                } else {
-                    temp_offset += 24 + strlen(msg) + 1;
-                }
-            }
             else if (strncmp(line, "printnl ", 8) == 0) {
-                char* msg = line + 8;
-                while (*msg == ' ') msg++;
+				char* msg = line + 8;
+				while (*msg == ' ') msg++;
 
-                int var_idx = find_var(vars, var_count, msg);
-                if (var_idx >= 0) {
-                    // print var (13 bytes) + print "\n" (24 + 2 bytes)
-                    temp_offset += 13 + 26;
-                } else {
-                    // print text + print "\n"
-                    temp_offset += (24 + strlen(msg) + 1) + 26;
-                }
-            }
+				int var_idx = find_var(vars, var_count, msg);
 
+				if (var_idx >= 0) {
+					temp_offset += 13 + 26;
+				} else {
+					char temp[128];
+
+					if (is_quoted(msg)) {
+						strip_quotes(temp, msg);
+						temp_offset += (24 + strlen(temp) + 1) + 26;
+					} else {
+						temp_offset += (24 + strlen(msg) + 1) + 26;
+					}
+				}
+			}
+            else if (strncmp(line, "printnl ", 8) == 0) {
+				char* msg = line + 8;
+				while (*msg == ' ') msg++;
+
+				int var_idx = find_var(vars, var_count, msg);
+
+				if (var_idx >= 0) {
+					temp_offset += 13 + 26;
+				} else {
+					char temp[128];
+
+					if (is_quoted(msg)) {
+						strip_quotes(temp, msg);
+						temp_offset += (24 + strlen(temp) + 1) + 26;
+					} else {
+						temp_offset += (24 + strlen(msg) + 1) + 26;
+					}
+				}
+			}
             // sleep
             else if (strncmp(line, "sleep ", 6) == 0) {
                 char* arg = line + 6;
@@ -953,12 +1082,10 @@ void compile_kx_from_file(char* src_filename, char* out_filename) {
                     }
                 }
             }
-
             // beep
             else if (strcmp(line, "beep") == 0) {
                 temp_offset += 7;
             }
-
             // jump
             else if (strncmp(line, "jump ", 5) == 0) {
                 temp_offset += 5;
@@ -990,6 +1117,31 @@ void compile_kx_from_file(char* src_filename, char* out_filename) {
 				} else {
 					temp_offset += 12 + 6;
 				}
+
+				set_label(labels, &label_count, f->else_label, 0);
+			}
+			else if (strncmp(line, "ifeqstr ", 8) == 0) {
+				char* p = line + 8;
+				while (*p == ' ') p++;
+
+				while (*p != '\0' && *p != ' ') p++;
+				if (*p == '\0') {
+					idx = 0;
+					continue;
+				}
+
+				*p = '\0';
+				p++;
+				while (*p == ' ') p++;
+				char* right = p;
+
+				kx_if_t* f = &if_stack[if_top++];
+				make_if_labels(if_counter++, f->else_label, f->end_label);
+
+				// emit_streq_var_var = 19 bytes
+				// emit_cmp_ebx_zero = 3 bytes
+				// emit_je = 6 bytes
+				temp_offset += 19 + 3 + 6;
 
 				set_label(labels, &label_count, f->else_label, 0);
 			}
@@ -1139,7 +1291,11 @@ void compile_kx_from_file(char* src_filename, char* out_filename) {
 
 		for (int i = 0; i < var_count; i++) {
 			if (vars[i].is_string) {
-				memcpy(data_section + vars[i].data_offset, vars[i].str_value, 128);
+				uint32_t len = strlen(vars[i].str_value);
+				if (len > 127) len = 127;
+
+				memset(data_section + vars[i].data_offset, 0, 128);
+				memcpy(data_section + vars[i].data_offset, vars[i].str_value, len);
 			} else {
 				memcpy(data_section + vars[i].data_offset, &vars[i].value, 4);
 			}
@@ -1265,7 +1421,6 @@ void compile_kx_from_file(char* src_filename, char* out_filename) {
             else if (strcmp(line, "ret") == 0) {
                 offset += emit_ret(code + offset);
             }
-
             // call
             else if (strncmp(line, "call ", 5) == 0) {
                 char* label = line + 5;
@@ -1287,7 +1442,99 @@ void compile_kx_from_file(char* src_filename, char* out_filename) {
                 int32_t rel = (int32_t)labels[label_idx].offset - (int32_t)(offset + 5);
                 offset += emit_call(code + offset, rel);
             }
+            else if (strncmp(line, "rmfile ", 7) == 0) {
+				char* name = line + 7;
+				while (*name == ' ') name++;
 
+				int idx_var = find_var(vars, var_count, name);
+
+				if (idx_var < 0) {
+					terminal_print("Compiler Error: Unknown variable\n");
+					idx = 0;
+					continue;
+				}
+
+				if (!vars[idx_var].is_string) {
+					terminal_print("Compiler Error: rmfile needs string var\n");
+					idx = 0;
+					continue;
+				}
+
+				offset += emit_rmfile_str_var(code + offset,
+						                      vars[idx_var].data_offset);
+			}
+            else if (strncmp(line, "writefile ", 10) == 0) {
+				char* p = line + 10;
+				while (*p == ' ') p++;
+				char* fname = p;
+
+				while (*p != '\0' && *p != ' ') p++;
+				if (*p == '\0') {
+					terminal_print("Compiler Error: Invalid writefile syntax\n");
+					idx = 0;
+					continue;
+				}
+
+				*p = '\0';
+				p++;
+				while (*p == ' ') p++;
+				char* content = p;
+
+				int f_idx = find_var(vars, var_count, fname);
+				int c_idx = find_var(vars, var_count, content);
+
+				if (f_idx < 0 || c_idx < 0) {
+					terminal_print("Compiler Error: Unknown variable\n");
+					idx = 0;
+					continue;
+				}
+
+				if (!vars[f_idx].is_string || !vars[c_idx].is_string) {
+					terminal_print("Compiler Error: writefile needs string vars\n");
+					idx = 0;
+					continue;
+				}
+
+				offset += emit_writefile_str_var_var(code + offset,
+						                             vars[f_idx].data_offset,
+						                             vars[c_idx].data_offset);
+			}
+			else if (strncmp(line, "readfile ", 9) == 0) {
+				char* p = line + 9;
+				while (*p == ' ') p++;
+				char* fname = p;
+
+				while (*p != '\0' && *p != ' ') p++;
+				if (*p == '\0') {
+					terminal_print("Compiler Error: Invalid readfile syntax\n");
+					idx = 0;
+					continue;
+				}
+
+				*p = '\0';
+				p++;
+				while (*p == ' ') p++;
+				char* outname = p;
+
+				int f_idx = find_var(vars, var_count, fname);
+				int o_idx = find_var(vars, var_count, outname);
+
+				if (f_idx < 0 || o_idx < 0) {
+					terminal_print("Compiler Error: Unknown variable\n");
+					idx = 0;
+					continue;
+				}
+
+				if (!vars[f_idx].is_string || !vars[o_idx].is_string) {
+					terminal_print("Compiler Error: readfile needs string vars\n");
+					idx = 0;
+					continue;
+				}
+
+				offset += emit_readfile_str_var_var(code + offset,
+						                            vars[f_idx].data_offset,
+						                            vars[o_idx].data_offset);
+			}
             // let
             if (strncmp(line, "let ", 4) == 0) {
                 char* p = line + 4;
@@ -1302,31 +1549,38 @@ void compile_kx_from_file(char* src_filename, char* out_filename) {
                     idx = 0;
                     continue;
                 }
-
                 *p = '\0';
                 p++;
-
                 while (*p == ' ') p++;
                 char* value_str = p;
-
                 if (name[0] == '\0' || value_str[0] == '\0' || !is_number(value_str)) {
                     terminal_print("Compiler Error: Invalid let syntax\n");
                     idx = 0;
                     continue;
                 }
-
                 int var_idx = find_var(vars, var_count, name);
                 if (var_idx < 0) {
                     terminal_print("Compiler Error: Unknown variable\n");
                     idx = 0;
                     continue;
                 }
-
                 offset += emit_store_imm(code + offset,
                                          vars[var_idx].data_offset,
                                          str_to_uint(value_str));
             }
 			else if (strncmp(line, "inputnum ", 9) == 0) {
+				char* name = line + 9;
+				while (*name == ' ') name++;
+				int var_idx = find_var(vars, var_count, name);
+				if (var_idx < 0) {
+					terminal_print("Compiler Error: Unknown variable\n");
+					idx = 0;
+					continue;
+				}
+				offset += emit_input_var(code + offset,
+						                 vars[var_idx].data_offset);
+			}
+			else if (strncmp(line, "inputstr ", 9) == 0) {
 				char* name = line + 9;
 				while (*name == ' ') name++;
 
@@ -1336,38 +1590,35 @@ void compile_kx_from_file(char* src_filename, char* out_filename) {
 					idx = 0;
 					continue;
 				}
-
-				offset += emit_input_var(code + offset,
-						                 vars[var_idx].data_offset);
+				if (!vars[var_idx].is_string) {
+					terminal_print("Compiler Error: inputstr needs string variable\n");
+					idx = 0;
+					continue;
+				}
+				offset += emit_input_str_var(code + offset,
+					                     vars[var_idx].data_offset);
 			}
             // add
             else if (strncmp(line, "add ", 4) == 0) {
                 char* p = line + 4;
-
                 while (*p == ' ') p++;
                 char* name = p;
-
                 while (*p != '\0' && *p != ' ') p++;
-
                 if (*p == '\0') {
                     terminal_print("Compiler Error: Invalid add syntax\n");
                     idx = 0;
                     continue;
                 }
-
                 *p = '\0';
                 p++;
-
                 while (*p == ' ') p++;
                 char* arg = p;
-
                 int var_idx = find_var(vars, var_count, name);
                 if (var_idx < 0) {
                     terminal_print("Compiler Error: Unknown variable\n");
                     idx = 0;
                     continue;
                 }
-
                 if (is_number(arg)) {
                     offset += emit_add_imm(code + offset, vars[var_idx].data_offset, str_to_uint(arg));
                 } else {
@@ -1377,39 +1628,30 @@ void compile_kx_from_file(char* src_filename, char* out_filename) {
                         idx = 0;
                         continue;
                     }
-
                     offset += emit_add_var(code + offset, vars[var_idx].data_offset, vars[src_idx].data_offset);
                 }
             }
-
             // sub
             else if (strncmp(line, "sub ", 4) == 0) {
                 char* p = line + 4;
-
                 while (*p == ' ') p++;
                 char* name = p;
-
                 while (*p != '\0' && *p != ' ') p++;
-
                 if (*p == '\0') {
                     terminal_print("Compiler Error: Invalid sub syntax\n");
                     idx = 0;
                     continue;
                 }
-
                 *p = '\0';
                 p++;
-
                 while (*p == ' ') p++;
                 char* arg = p;
-
                 int var_idx = find_var(vars, var_count, name);
                 if (var_idx < 0) {
                     terminal_print("Compiler Error: Unknown variable\n");
                     idx = 0;
                     continue;
                 }
-
                 if (is_number(arg)) {
                     offset += emit_sub_imm(code + offset, vars[var_idx].data_offset, str_to_uint(arg));
                 } else {
@@ -1419,7 +1661,6 @@ void compile_kx_from_file(char* src_filename, char* out_filename) {
                         idx = 0;
                         continue;
                     }
-
                     offset += emit_sub_var(code + offset, vars[var_idx].data_offset, vars[src_idx].data_offset);
                 }
             }
@@ -1436,8 +1677,16 @@ void compile_kx_from_file(char* src_filename, char* out_filename) {
 					} else {
 						offset += emit_print_var(code + offset, vars[var_idx].data_offset);
 					}
-				} else {
-					offset += emit_print(code + offset, arg);
+				} 
+				else {
+					char temp[128];
+
+					if (is_quoted(arg)) {
+						strip_quotes(temp, arg);
+						offset += emit_print(code + offset, temp);
+					} else {
+						offset += emit_print(code + offset, arg);
+					}
 				}
 			}
             else if (strncmp(line, "printnl ", 8) == 0) {
@@ -1452,8 +1701,16 @@ void compile_kx_from_file(char* src_filename, char* out_filename) {
 					} else {
 						offset += emit_print_var(code + offset, vars[var_idx].data_offset);
 					}
-				} else {
-					offset += emit_print(code + offset, arg);
+				} 
+				else {
+					char temp[128];
+
+					if (is_quoted(arg)) {
+						strip_quotes(temp, arg);
+						offset += emit_print(code + offset, temp);
+					} else {
+						offset += emit_print(code + offset, arg);
+					}
 				}
                 offset += emit_print(code + offset, "\n");
             }
@@ -1514,30 +1771,25 @@ void compile_kx_from_file(char* src_filename, char* out_filename) {
 				char* p = line + 5;
 				while (*p == ' ') p++;
 				char* left = p;
-
 				while (*p != '\0' && *p != ' ') p++;
 				if (*p == '\0') {
 					terminal_print("Compiler Error: Invalid iflt syntax\n");
 					idx = 0;
 					continue;
 				}
-
 				*p = '\0';
 				p++;
 				while (*p == ' ') p++;
 				char* right = p;
-
 				int left_idx = find_var(vars, var_count, left);
 				if (left_idx < 0) {
 					terminal_print("Compiler Error: Unknown variable\n");
 					idx = 0;
 					continue;
 				}
-
 				// IF BLOCK
 				kx_if_t* f = &if_stack[if_top++];
 				make_if_labels(if_counter++, f->else_label, f->end_label);
-
 				// cmp
 				if (is_number(right)) {
 					offset += emit_cmp_var_imm(code + offset,
@@ -1563,7 +1815,6 @@ void compile_kx_from_file(char* src_filename, char* out_filename) {
 					idx = 0;
 					continue;
 				}
-
 				int32_t rel = (int32_t)labels[else_idx].offset - (int32_t)(offset + 6);
 				offset += emit_jge(code + offset, rel);
 			}
@@ -1571,30 +1822,25 @@ void compile_kx_from_file(char* src_filename, char* out_filename) {
 				char* p = line + 5;
 				while (*p == ' ') p++;
 				char* left = p;
-
 				while (*p != '\0' && *p != ' ') p++;
 				if (*p == '\0') {
 					terminal_print("Compiler Error: Invalid ifeq syntax\n");
 					idx = 0;
 					continue;
 				}
-
 				*p = '\0';
 				p++;
 				while (*p == ' ') p++;
 				char* right = p;
-
 				int left_idx = find_var(vars, var_count, left);
 				if (left_idx < 0) {
 					terminal_print("Compiler Error: Unknown variable\n");
 					idx = 0;
 					continue;
 				}
-
 				// IF BLOCK
 				kx_if_t* f = &if_stack[if_top++];
 				make_if_labels(if_counter++, f->else_label, f->end_label);
-
 				// cmp
 				if (is_number(right)) {
 					offset += emit_cmp_var_imm(code + offset,
@@ -1607,13 +1853,61 @@ void compile_kx_from_file(char* src_filename, char* out_filename) {
 						idx = 0;
 						continue;
 					}
-
 					offset += emit_cmp_var_var(code + offset,
 						                       vars[left_idx].data_offset,
 						                       vars[right_idx].data_offset);
 				}
-
 				// jump to ELSE if NOT equal
+				int else_idx = find_label(labels, label_count, f->else_label);
+				if (else_idx < 0) {
+					terminal_print("Compiler Error: Missing else label\n");
+					idx = 0;
+					continue;
+				}
+				int32_t rel = (int32_t)labels[else_idx].offset - (int32_t)(offset + 6);
+				offset += emit_jne(code + offset, rel);
+			}
+			else if (strncmp(line, "ifeqstr ", 8) == 0) {
+				char* p = line + 8;
+				while (*p == ' ') p++;
+				char* left = p;
+
+				while (*p != '\0' && *p != ' ') p++;
+				if (*p == '\0') {
+					terminal_print("Compiler Error: Invalid ifeqstr syntax\n");
+					idx = 0;
+					continue;
+				}
+
+				*p = '\0';
+				p++;
+				while (*p == ' ') p++;
+				char* right = p;
+
+				int left_idx = find_var(vars, var_count, left);
+				int right_idx = find_var(vars, var_count, right);
+
+				if (left_idx < 0 || right_idx < 0) {
+					terminal_print("Compiler Error: Unknown variable\n");
+					idx = 0;
+					continue;
+				}
+
+				if (!vars[left_idx].is_string || !vars[right_idx].is_string) {
+					terminal_print("Compiler Error: ifeqstr needs string vars\n");
+					idx = 0;
+					continue;
+				}
+
+				kx_if_t* f = &if_stack[if_top++];
+				make_if_labels(if_counter++, f->else_label, f->end_label);
+
+				offset += emit_streq_var_var(code + offset,
+						                     vars[left_idx].data_offset,
+						                     vars[right_idx].data_offset);
+
+				offset += emit_cmp_ebx_zero(code + offset);
+
 				int else_idx = find_label(labels, label_count, f->else_label);
 				if (else_idx < 0) {
 					terminal_print("Compiler Error: Missing else label\n");
@@ -1622,66 +1916,8 @@ void compile_kx_from_file(char* src_filename, char* out_filename) {
 				}
 
 				int32_t rel = (int32_t)labels[else_idx].offset - (int32_t)(offset + 6);
-				offset += emit_jne(code + offset, rel);
-			}
-			else if (strncmp(line, "ifeq ", 5) == 0) {
-				char* p = line + 5;
-				while (*p == ' ') p++;
-				char* left = p;
-
-				while (*p != '\0' && *p != ' ') p++;
-				if (*p == '\0') {
-					terminal_print("Compiler Error: Invalid ifeq syntax\n");
-					idx = 0;
-					continue;
-				}
-				*p = '\0';
-				p++;
-				while (*p == ' ') p++;
-				char* right = p;
-
-				while (*p != '\0' && *p != ' ') p++;
-				if (*p == '\0') {
-					terminal_print("Compiler Error: Invalid ifeq syntax\n");
-					idx = 0;
-					continue;
-				}
-				*p = '\0';
-				p++;
-				while (*p == ' ') p++;
-				char* label = p;
-
-                int left_idx = find_var(vars, var_count, left);
-				int label_idx = find_label(labels, label_count, label);
-
-				if (left_idx < 0) {
-					terminal_print("Compiler Error: Unknown variable\n");
-					idx = 0;
-					continue;
-				}
-				if (label_idx < 0) {
-					terminal_print("Compiler Error: Unknown label\n");
-					idx = 0;
-					continue;
-				}
-				if (is_number(right)) {
-					offset += emit_cmp_var_imm(code + offset,
-	                vars[left_idx].data_offset,
-	                str_to_uint(right));
-				} else {
-					int right_idx = find_var(vars, var_count, right);
-					if (right_idx < 0) {
-						terminal_print("Compiler Error: Unknown variable\n");
-						idx = 0;
-						continue;
-					}
-					offset += emit_cmp_var_var(code + offset,
-								               vars[left_idx].data_offset,
-								               vars[right_idx].data_offset);
-				}
-				int32_t rel = (int32_t)labels[label_idx].offset - (int32_t)(offset + 6);
 				offset += emit_je(code + offset, rel);
-            }
+			}
             else if (strncmp(line, "ifgt ", 5) == 0) {
 				char* p = line + 5;
 				while (*p == ' ') p++;
@@ -1693,23 +1929,19 @@ void compile_kx_from_file(char* src_filename, char* out_filename) {
 					idx = 0;
 					continue;
 				}
-
 				*p = '\0';
 				p++;
 				while (*p == ' ') p++;
 				char* right = p;
-
 				int left_idx = find_var(vars, var_count, left);
 				if (left_idx < 0) {
 					terminal_print("Compiler Error: Unknown variable\n");
 					idx = 0;
 					continue;
 				}
-
 				// IF BLOCK
 				kx_if_t* f = &if_stack[if_top++];
 				make_if_labels(if_counter++, f->else_label, f->end_label);
-
 				// cmp
 				if (is_number(right)) {
 					offset += emit_cmp_var_imm(code + offset,
@@ -1722,12 +1954,10 @@ void compile_kx_from_file(char* src_filename, char* out_filename) {
 						idx = 0;
 						continue;
 					}
-
 					offset += emit_cmp_var_var(code + offset,
 						                       vars[left_idx].data_offset,
 						                       vars[right_idx].data_offset);
 				}
-
 				// jump to ELSE if NOT greater
 				int else_idx = find_label(labels, label_count, f->else_label);
 				if (else_idx < 0) {
@@ -1735,7 +1965,6 @@ void compile_kx_from_file(char* src_filename, char* out_filename) {
 					idx = 0;
 					continue;
 				}
-
 				int32_t rel = (int32_t)labels[else_idx].offset - (int32_t)(offset + 6);
 				offset += emit_jle(code + offset, rel);
 			}
@@ -1924,6 +2153,13 @@ void compile_kx_from_file(char* src_filename, char* out_filename) {
 
 	if (data_section) {
 		free(data_section);
+	}
+
+	for (int i = 0; i < var_count; i++) {
+		if (vars[i].is_string && vars[i].str_value) {
+		    free(vars[i].str_value);
+		    vars[i].str_value = 0;
+		}
 	}
 
 	free(code);

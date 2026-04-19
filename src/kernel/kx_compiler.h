@@ -19,6 +19,8 @@ uint32_t emit_add_imm(uint8_t* buf, uint32_t data_offset, uint32_t value);
 uint32_t emit_sub_imm(uint8_t* buf, uint32_t data_offset, uint32_t value);
 uint32_t emit_print_var(uint8_t* buf, uint32_t data_offset);
 uint32_t emit_input_var(uint8_t* buf, uint32_t data_offset);
+uint32_t emit_input_str_var(uint8_t* buf, uint32_t data_offset);
+uint32_t emit_streq_var_var(uint8_t* buf, uint32_t left_offset, uint32_t right_offset);
 uint32_t emit_sleep_var(uint8_t* buf, uint32_t data_offset);
 uint32_t emit_push_var(uint8_t* buf, uint32_t data_offset);
 uint32_t emit_pop_var(uint8_t* buf, uint32_t data_offset);
@@ -28,10 +30,14 @@ uint32_t emit_add_var(uint8_t* buf, uint32_t dst_offset, uint32_t src_offset);
 uint32_t emit_sub_var(uint8_t* buf, uint32_t dst_offset, uint32_t src_offset);
 uint32_t emit_cmp_var_var(uint8_t* buf, uint32_t left_offset, uint32_t right_offset);
 uint32_t emit_cmp_var_imm(uint8_t* buf, uint32_t left_offset, uint32_t imm);
+uint32_t emit_cmp_ebx_zero(uint8_t* buf);
 uint32_t emit_je(uint8_t* buf, int32_t rel);
 uint32_t emit_jl(uint8_t* buf, int32_t rel);
 uint32_t emit_jg(uint8_t* buf, int32_t rel);
 uint32_t emit_call(uint8_t* buf, int32_t rel);
 uint32_t emit_ret(uint8_t* buf);
+uint32_t emit_writefile_str_var_var(uint8_t* buf, uint32_t filename_offset, uint32_t content_offset);
+uint32_t emit_readfile_str_var_var(uint8_t* buf, uint32_t filename_offset, uint32_t out_offset);
+uint32_t emit_rmfile_str_var(uint8_t* buf, uint32_t filename_offset);
 
 #endif
