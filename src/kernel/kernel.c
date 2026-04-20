@@ -88,11 +88,9 @@ void kernel_main(uint32_t mboot_ptr) {
     // check if GRUB loaded any modules (files)
     if (mbi->flags & MULTIBOOT_FLAG_MODS && mbi->mods_count > 0) {
         multiboot_module_t* mod = (multiboot_module_t*)mbi->mods_addr;
-        
         terminal_print("Module 0 Start: ");
         terminal_print_number(mod->mod_start);
         terminal_print("\n");
-
         // check if there is actual data there ('ustar' magic string)
         char* magic = (char*)(mod->mod_start + 257); 
         if (magic[0] == 'u' && magic[1] == 's') {
@@ -100,12 +98,10 @@ void kernel_main(uint32_t mboot_ptr) {
         } else {
             terminal_print("ERROR: No TAR magic found at module start\n");
         }
-
         init_ramdisk(mod->mod_start);
     }
-
-    terminal_print("KalsangOS> ");
-    
+	terminal_print("KalsangOS> ");
+	shell_set_line_start();
     asm volatile("sti");
 
     while (1) {

@@ -887,7 +887,6 @@ void compile_kx_from_file(char* src_filename, char* out_filename) {
 				if (*p != '\0') {
 					*p = '\0';
 					p++;
-
 					while (*p == ' ') p++;
 					char* src_arg = p;
 
@@ -1595,8 +1594,7 @@ void compile_kx_from_file(char* src_filename, char* out_filename) {
 					idx = 0;
 					continue;
 				}
-				offset += emit_input_str_var(code + offset,
-					                     vars[var_idx].data_offset);
+				offset += emit_input_str_var(code + offset, vars[var_idx].data_offset);
 			}
             // add
             else if (strncmp(line, "add ", 4) == 0) {

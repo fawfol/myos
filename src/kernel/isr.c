@@ -8,9 +8,10 @@
 void terminal_scroll_up();
 void terminal_scroll_down();
 
-volatile char last_char = 0;
+volatile uint8_t last_char = 0;
 volatile bool char_available = false;
 volatile bool shell_is_blocking = false;
+static bool extended_scancode = false;
 
 extern void mouse_handler();
 
@@ -76,11 +77,10 @@ const char kbd_us_shift[128] = {
 //helper for the shell to "consume" a key
 char keyboard_get_last_char() {
     if (!char_available) return 0;
-    char c = last_char;
-    char_available = false; //reset the flag
+    char c = (char)last_char;
+    char_available = false;
     return c;
 }
-
 void isr_handler(registers_t regs) {
     if (regs.int_no < 32) {
         terminal_clear();
@@ -110,44 +110,55 @@ void isr_handler(registers_t regs) {
         // === KEYBOARD INTERRUPT ===
         // Inside isr.c keyboard section
 		else if (regs.int_no == 33) {
-            uint8_t scancode = inb(0x60);
-            outb(0x20, 0x20); // Send EOI
-			
-			//page UP key
-			if (scancode == 0x49) {
-				terminal_scroll_up();
-				return; //
-			}
-			//page DOWM key
-			else if (scancode == 0x51) {
-				terminal_scroll_down();
+			uint8_t scancode = inb(0x60);
+			outb(0x20, 0x20);
+			if (scancode == 0xE0) {
+				extended_scancode = true;
 				return;
 			}
-
-            //detect shift key press
-            else if (scancode == 0x2A || scancode == 0x36) {
-                shift_pressed = true;
-            } 
-            //detect shift key release
-            else if (scancode == 0xAA || scancode == 0xB6) {
-                shift_pressed = false;
-            } 
-            //process the actual keydown event
-            else if (!(scancode & 0x80)) {
-                //apply the shift map if shift is currently held
-                char c = shift_pressed ? kbd_us_shift[scancode] : kbd_us[scancode];
-
-                if (c != 0) {
-                    last_char = c;
-                    char_available = true;
-
-                    if (!shell_is_blocking) {
-                        shell_handle_keypress(c);
-                    }
-                }
-            }
-        }
-        
+			if (!extended_scancode) {
+				if (scancode == 0x49) {
+				    terminal_scroll_up();
+				    return;
+				} else if (scancode == 0x51) {
+				    terminal_scroll_down();
+				    return;
+				}
+			}
+			if (scancode == 0x2A || scancode == 0x36) {
+				shift_pressed = true;
+				return;
+			}
+			if (scancode == 0xAA || scancode == 0xB6) {
+				shift_pressed = false;
+				return;
+			}
+			if (scancode & 0x80) {
+				extended_scancode = false;
+				return;
+			}
+			int c = 0;
+			if (extended_scancode) {
+				switch (scancode) {
+				    case 0x4B: c = KEY_ARROW_LEFT;  break;
+				    case 0x4D: c = KEY_ARROW_RIGHT; break;
+				    case 0x48: c = KEY_ARROW_UP;    break;
+				    case 0x50: c = KEY_ARROW_DOWN;  break;
+				    case 0x53: c = KEY_DELETE;      break;
+				    default: c = 0;                 break;
+				}
+				extended_scancode = false;
+			} else {
+				c = shift_pressed ? kbd_us_shift[scancode] : kbd_us[scancode];
+			}
+			if (c != 0) {
+				last_char = (uint8_t)c;
+				char_available = true;
+				if (!shell_is_blocking) {
+				    shell_handle_keypress(c);
+				}
+			}
+		}
         //mouse func
         else if (regs.int_no == 44) { // IRQ 12
 		    mouse_handler();

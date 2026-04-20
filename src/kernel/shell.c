@@ -13,10 +13,13 @@
 
 #define BUFFER_SIZE 256
 
+static int shell_prompt_start = 0;
 
 char key_buffer[BUFFER_SIZE];
 int key_index = 0;
-
+int shell_cursor = 0;
+uint32_t shell_line_start = 0;
+int last_drawn_len = 0;
 // --- GLOBAL SCROLLING MEMORY ---
 uint16_t history_buffer[MAX_HISTORY][80];//2D array holds 256 rows each 80 characters wide
 uint16_t live_screen[25][80];//keeps track of how many total lines have scrolled off the screen
@@ -51,7 +54,17 @@ void redraw_view() {
         }
     }
 }
-
+void shell_redraw_input_line(const char* buffer, int len, int cursor_pos) {
+    update_cursor(shell_prompt_start);
+    for (int i = 0; i < len; i++) {
+        char s[2];
+        s[0] = buffer[i];
+        s[1] = '\0';
+        terminal_print(s);
+    }
+    terminal_print(" ");
+    update_cursor(shell_prompt_start + cursor_pos);
+}
 void terminal_scroll_up() {
     if (history_count == 0) return; //nth to see inpast
     
@@ -122,7 +135,29 @@ void add_command(char* name, shell_func_t func) {
 uint16_t* terminal_buffer = (uint16_t*) 0xB8000;
 uint32_t terminal_index = 0;
 uint8_t current_color = 0x0F; 
+void shell_set_line_start() {
+    shell_line_start = terminal_index;
+}
+void shell_redraw_current_input() {
+    uint32_t pos = shell_line_start;
 
+    // draw current buffer
+    for (int i = 0; i < key_index; i++) {
+        terminal_buffer[pos + i] =
+            (uint16_t)key_buffer[i] | ((uint16_t)current_color << 8);
+    }
+
+    // erase leftover characters from previous longer draw
+    for (int i = key_index; i < last_drawn_len; i++) {
+        terminal_buffer[pos + i] =
+            (uint16_t)' ' | ((uint16_t)current_color << 8);
+    }
+
+    last_drawn_len = key_index;
+
+    terminal_index = shell_line_start + shell_cursor;
+    update_cursor(terminal_index);
+}
 //force a Division by Zero (Exception 0)
 void trigger_divide_by_zero() {
     int a = 5;
@@ -906,33 +941,80 @@ void execute_command() {
         terminal_print(key_buffer);
         terminal_print("\n");
     }
-
 done:
     key_index = 0;
+    shell_cursor = 0;
+    last_drawn_len = 0;
+    key_buffer[0] = '\0';
     terminal_print("KalsangOS> ");
+    shell_set_line_start();
 }
 
 //////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 //////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 //////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-void shell_handle_keypress(char c) {
-    if (c == '\b') {
-        if (key_index > 0) {
-            key_index--; 
-            terminal_index--; 
-            terminal_buffer[terminal_index] = (uint16_t) ' ' | (uint16_t) current_color << 8; 
-            update_cursor(terminal_index);
-        }
-    } else if (c == '\n') {
-        enter_pressed = true; 
-    } else {
-        if (key_index < BUFFER_SIZE - 1) {
-            key_buffer[key_index++] = c; 
-            terminal_buffer[terminal_index++] = (uint16_t) c | (uint16_t) current_color << 8; 
-            update_cursor(terminal_index);
-        }
+void shell_handle_keypress(int c) {
+    if (c == '\n') {
+        enter_pressed = true;
+        return;
     }
-    if (terminal_index >= 2000) terminal_clear();
+
+    if (c == '\b') {
+        if (shell_cursor > 0) {
+            for (int i = shell_cursor - 1; i < key_index - 1; i++) {
+                key_buffer[i] = key_buffer[i + 1];
+            }
+            key_index--;
+            shell_cursor--;
+            key_buffer[key_index] = '\0';
+            shell_redraw_current_input();
+        }
+        return;
+    }
+
+    if (c == KEY_DELETE) {
+        if (shell_cursor < key_index) {
+            for (int i = shell_cursor; i < key_index - 1; i++) {
+                key_buffer[i] = key_buffer[i + 1];
+            }
+            key_index--;
+            key_buffer[key_index] = '\0';
+            shell_redraw_current_input();
+        }
+        return;
+    }
+
+    if (c == KEY_ARROW_LEFT) {
+        if (shell_cursor > 0) {
+            shell_cursor--;
+            terminal_index = shell_line_start + shell_cursor;
+            update_cursor(terminal_index);
+        }
+        return;
+    }
+
+    if (c == KEY_ARROW_RIGHT) {
+        if (shell_cursor < key_index) {
+            shell_cursor++;
+            terminal_index = shell_line_start + shell_cursor;
+            update_cursor(terminal_index);
+        }
+        return;
+    }
+
+    if (c >= 32 && c <= 126) {
+        if (key_index < BUFFER_SIZE - 1) {
+            for (int i = key_index; i > shell_cursor; i--) {
+                key_buffer[i] = key_buffer[i - 1];
+            }
+            key_buffer[shell_cursor] = (char)c;
+            key_index++;
+            shell_cursor++;
+            key_buffer[key_index] = '\0';
+            shell_redraw_current_input();
+        }
+        return;
+    }
 }
 /////////////////////////////////////////////////////////////////////////////////////////////////////////
 //// LIVEtemporary heap buffer to store your keystrokes until you decide to commit them to the disk /////
@@ -1057,51 +1139,101 @@ void shell_cmd_edit(char* filename) {
 
     free(edit_buffer);
 }
-
 char* shell_readline() {
     shell_is_blocking = true;
-    int index = 0;
 
-    //zero out the buffer
-    for(int i = 0; i < 256; i++) line_buffer[i] = 0;
+    int len = 0;
+    int cursor = 0;
+    int line_start = terminal_index;
+    int last_len = 0;
 
-    char_available = false; 
+    for (int i = 0; i < 256; i++) {
+        line_buffer[i] = 0;
+    }
+
+    char_available = false;
     last_char = 0;
 
     while (shell_is_blocking) {
         if (char_available) {
-            char c = last_char;
+            int c = (unsigned char)last_char;
             char_available = false;
 
             if (c == '\n') {
-                line_buffer[index] = '\0';
-                terminal_print("\n"); //newline is safe for terminal_print
+                line_buffer[len] = '\0';
+                terminal_print("\n");
                 shell_is_blocking = false;
                 return line_buffer;
-            } 
-            // === BACKSPACE FIX ===
-            else if (c == '\b' && index > 0) {
-                index--; //remove from your string
-                
-                //manually erase from the VGA screen
-                terminal_index--;
-                terminal_buffer[terminal_index] = (uint16_t)' ' | (uint16_t)current_color << 8;
-                update_cursor(terminal_index);
             }
-            else if (index < 254 && c >= 32) {
-                line_buffer[index++] = c; //add to your string
-                
-                // Write directly to VGA screen bypassing terminal_print
-                terminal_buffer[terminal_index++] = (uint16_t)c | (uint16_t)current_color << 8;
-                update_cursor(terminal_index);
+
+            else if (c == '\b') {
+                if (cursor > 0) {
+                    for (int i = cursor - 1; i < len - 1; i++) {
+                        line_buffer[i] = line_buffer[i + 1];
+                    }
+                    len--;
+                    cursor--;
+                    line_buffer[len] = '\0';
+                }
             }
+
+            else if (c == KEY_DELETE) {
+                if (cursor < len) {
+                    for (int i = cursor; i < len - 1; i++) {
+                        line_buffer[i] = line_buffer[i + 1];
+                    }
+                    len--;
+                    line_buffer[len] = '\0';
+                }
+            }
+
+            else if (c == KEY_ARROW_LEFT) {
+                if (cursor > 0) {
+                    cursor--;
+                }
+            }
+
+            else if (c == KEY_ARROW_RIGHT) {
+                if (cursor < len) {
+                    cursor++;
+                }
+            }
+
+            else if (c >= 32 && c <= 126) {
+                if (len < 255) {
+                    for (int i = len; i > cursor; i--) {
+                        line_buffer[i] = line_buffer[i - 1];
+                    }
+                    line_buffer[cursor] = (char)c;
+                    len++;
+                    cursor++;
+                    line_buffer[len] = '\0';
+                }
+            }
+
+            terminal_index = line_start;
+
+            for (int i = 0; i < len; i++) {
+                terminal_buffer[terminal_index++] =
+                    (uint16_t)line_buffer[i] | ((uint16_t)current_color << 8);
+            }
+
+            for (int i = len; i < last_len; i++) {
+                terminal_buffer[terminal_index++] =
+                    (uint16_t)' ' | ((uint16_t)current_color << 8);
+            }
+
+            last_len = len;
+
+            terminal_index = line_start + cursor;
+            update_cursor(terminal_index);
         }
-        //keep the CPU resting slightly so it doesnt overheat
-        asm volatile("pause"); 
+
+        asm volatile("pause");
     }
+
     return line_buffer;
 }
-
 void init_shell() {
     terminal_clear();
     
@@ -1112,7 +1244,9 @@ void init_shell() {
     terminal_print("[OK] Virtual Memory (Paging)\n");
     terminal_print("--------------------------------\n");
     
-   
+   key_index = 0;
+	shell_cursor = 0;
+	key_buffer[0] = '\0';
 }
 
 void shell_update() {

@@ -67,6 +67,7 @@ ld -m elf_i386 --no-warn-rwx-segments -T src/linker.ld -o isodir/boot/myos.bin \
     obj/interrupts.o \
     obj/kernel.o \
     obj/gdt.o \
+    obj/task.o \
     obj/idt.o \
     obj/isr.o \
     obj/mouse.o \
