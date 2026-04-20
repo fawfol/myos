@@ -54,6 +54,7 @@ cp initrd.tar isodir/boot/
 echo "assembling boot and ints..."
 as --32 src/boot/boot.s -o obj/boot.o
 as --32 src/boot/interrupts.s -o obj/interrupts.o
+as --32 src/kernel/task.s -o obj/task.o
 
 echo "compiling kernel base..."
 for file in kernel gdt idt isr pic shell timer paging memory ramdisk mouse ata fat32 kx_loader kx_compiler; do
@@ -65,9 +66,9 @@ echo "linking KalsangOS..."
 ld -m elf_i386 --no-warn-rwx-segments -T src/linker.ld -o isodir/boot/myos.bin \
     obj/boot.o \
     obj/interrupts.o \
+    obj/task.o \
     obj/kernel.o \
     obj/gdt.o \
-    obj/task.o \
     obj/idt.o \
     obj/isr.o \
     obj/mouse.o \

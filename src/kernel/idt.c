@@ -19,13 +19,14 @@ typedef struct registers {
 extern volatile bool shell_is_blocking;
 
 //external assembly functions
+extern uint32_t kernel_esp_save;
 extern void idt_flush(uint32_t);
 extern void isr33();
 extern void isr32();
 extern void syscall_handler();
 extern char keyboard_get_last_char();
 extern volatile bool char_available;
-
+extern void return_to_kernel();
 //exception handlers
 extern void isr0(); extern void isr1(); extern void isr2(); extern void isr3();
 extern void isr4(); extern void isr5(); extern void isr6(); extern void isr7();
@@ -78,11 +79,10 @@ void init_idt() {
 
 /*system call gate init */
 void init_syscalls() {
-    // 0xEE sets Ring 3 privilege so user programs can use it
-    // butttttt 0xEE = ring 3 interrupt gatec // 0xEF = ring 3 trap gate
-    idt_set_gate(0x80, (uint32_t)syscall_handler, 0x08, 0xEF);
+    // Flag 0xEE = Present (0x80) | Ring 3 Privilege (0x60) | 32-bit Gate (0x0E)
+    // This explicitly allows User Mode programs to call int 0x80!
+    idt_set_gate(128, (uint32_t)syscall_handler, 0x08, 0xEE); 
 }
-
 /*dispatcher bridge */ 
 void syscall_dispatcher(registers_t *regs) {
     switch (regs->eax) {
@@ -110,9 +110,9 @@ void syscall_dispatcher(registers_t *regs) {
             break;
         }
         case 4: { // SYS_EXIT
-			terminal_print("\n[Program exited]\n");
-			break;
-		}
+            return_to_kernel();
+            break;
+        }
 		case 5: { // SYS_SLEEP: ebx = seconds
 			uint32_t seconds = regs->ebx;
 			sleep(seconds);

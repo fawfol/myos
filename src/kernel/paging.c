@@ -12,15 +12,17 @@ void init_paging() {
 
     //identity map 256MB
     for(int i = 0; i < 65536; i++) {
-        // Map Virtual (i*4096) to Physical (i*4096)
-        page_tables[i] = (uint32_t)(i * 4096) | 3; 
+        // map virtual (i*4096) to Physical (i*4096)
+        // Flags: 7 = Present (1) + Read/Write (2) + User (4)
+        page_tables[i] = (uint32_t)(i * 4096) | 7; 
     }
 
     //link dir to tables
     for(int t = 0; t < 64; t++) {
         //tables are spaced 4096 bytes apart in physical RAM
         uint32_t phys_table_addr = 0x01001000 + (t * 4096);
-        page_directory[t] = phys_table_addr | 3;
+        // Flags: 7 = Present (1) + Read/Write (2) + User (4)
+        page_directory[t] = phys_table_addr | 7;
     }
 
     //enable pagin(Point CR3 to 16MB)

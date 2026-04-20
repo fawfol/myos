@@ -3,6 +3,8 @@
 #include "shell.h"
 #include "vfs.h"
 
+extern void execute_ring3(uint32_t entry_point, uint32_t user_stack);
+
 void run_kx_file(char* filename) {
     vfs_node_t* file = vfs_find(vfs_root, filename);
 
@@ -27,7 +29,7 @@ void run_kx_file(char* filename) {
 
     void* mem = malloc(total_size);
     if (!mem) {
-        terminal_print("Error: out of memory\n");
+        terminal_print("Error: out of memory for program\n");
         return;
     }
 
@@ -42,14 +44,32 @@ void run_kx_file(char* filename) {
         memcpy(dst + header->code_size, src + header->code_size, header->data_size);
     }
 
-    typedef void (*entry_t)();
-    entry_t entry = (entry_t)((uint32_t)mem + header->entry);
+    // --- NEW RING 3 ISOLATION CODE ---
+    // Give the user program its own 4KB memory stack!
+    void* user_stack = malloc(4096); 
+    if (!user_stack) {
+        terminal_print("Error: out of memory for user stack\n");
+        free(mem);
+        return;
+    }
 
-    terminal_print("Running KX program...\n");
+    uint32_t entry_point = (uint32_t)mem + header->entry;
+    uint32_t stack_top = (uint32_t)user_stack + 4096; //stack grows downwards
 
-    entry();
+    terminal_print("Launching KX program in Ring 3...\n");
 
-    terminal_print("\nProgram finished.\n");
 
+	//debug
+	uint8_t* code_check = (uint8_t*)entry_point;
+    terminal_print("First byte of code: ");
+    terminal_print_hex(code_check[0]);
+    terminal_print("\n");
+    
+    //jump to User Space (Kernel execution will pause here until SYS_EXIT is called)
+    execute_ring3(entry_point, stack_top);
+
+    // When SYS_EXIT is triggered, the kernel teleports right back here
+    terminal_print("\nProgram finished. Memory cleaned.\n");
+    free(user_stack);
     free(mem);
 }

@@ -21,24 +21,24 @@ static void gdt_set_gate(int32_t num, uint32_t base, uint32_t limit, uint8_t acc
     gdt_entries[num].granularity |= gran & 0xF0;
     gdt_entries[num].access      = access;
 }
-
 static void write_tss(int32_t num, uint16_t ss0, uint32_t esp0) {
     uint32_t base = (uint32_t) &tss_entry;
-    uint32_t limit = base + sizeof(tss_entry);
+    
+    // CRITICAL FIX: Limit is just the size minus 1, NOT base + size!
+    uint32_t limit = sizeof(tss_entry) - 1; 
 
-    //add the TSS descriptor to the GDT
+    // Add the TSS descriptor to the GDT
     gdt_set_gate(num, base, limit, 0xE9, 0x00);
 
-    //ensure the TSS is initially zero'd
+    // Ensure the TSS is initially zero'd
     memset(&tss_entry, 0, sizeof(tss_entry));
 
-    tss_entry.ss0  = ss0;  //set the kernel stack segment
-    tss_entry.esp0 = esp0; //set the kernel stack pointer
+    tss_entry.ss0  = ss0;  // Set the kernel stack segment
+    tss_entry.esp0 = esp0; // Set the kernel stack pointer
 
-    // set the cs, ss, ds, es, fs and gs entries in the TSS
-    //specifies what segments should be loaded when the processor switches to kernel mode 
-    tss_entry.cs   = 0x0b;
-    tss_entry.ss = tss_entry.ds = tss_entry.es = tss_entry.fs = tss_entry.gs = 0x13;
+    // Safe defaults for hardware multitasking (though we mostly only use ss0/esp0)
+    tss_entry.cs = 0x08; 
+    tss_entry.ss = tss_entry.ds = tss_entry.es = tss_entry.fs = tss_entry.gs = 0x10;
     tss_entry.iomap_base = sizeof(tss_entry);
 }
 
