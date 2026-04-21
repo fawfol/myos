@@ -29,6 +29,6 @@ void run_script(char* filename);
 char* shell_readline();
 void shell_update();
 
-void run_kx_file(char* filename);
+void run_kx_file(char* filename, char* args);
 
 #endif

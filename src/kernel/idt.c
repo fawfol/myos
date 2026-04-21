@@ -7,8 +7,12 @@
 #include "timer.h"
 #include "io.h" 
 
+extern void terminal_print_length(char* str, uint32_t len);
+extern void fat32_write_file(char* filename, char* data, uint32_t size);
+
 struct idt_entry_struct idt_entries[256];
 struct idt_ptr_struct idt_ptr;
+
 
 // --- FILE DESCRIPTOR TABLE ---
 #define MAX_FDS 32
@@ -30,6 +34,7 @@ typedef struct registers {
 uint32_t current_user_brk = 0;
 
 //external assembly functions
+extern uint32_t terminal_index;
 extern char chain_program_name[64];
 extern void return_to_kernel();
 extern volatile bool shell_is_blocking;
@@ -397,13 +402,14 @@ void syscall_dispatcher(registers_t *regs) {
                         // Optional: handle backspace (Erase from buffer and screen)
                         bytes_read--;
                         terminal_backspace();
-                    } else if (c >= 32 && c <= 126) { 
-                        //standard printable characters
+                    }  else if (c >= 32 && c <= 126) { 
                         buffer[bytes_read++] = c;
                         
-                        //echo the character to the VGA screen so the user sees what they type
                         char str[2] = {c, '\0'};
                         terminal_print(str);
+                        
+                        // Sync the hardware cursor after every character typed in Ring 3
+                        update_cursor(terminal_index); 
                     }
                 }
                 buffer[bytes_read] = '\0'; // Null-terminate the string safely
@@ -426,24 +432,23 @@ void syscall_dispatcher(registers_t *regs) {
             break;
         }
         case 23: { // SYS_FD_WRITE: ebx = fd, ecx = buffer, edx = size
-            int fd = regs->ebx;
-            char* buffer = (char*)regs->ecx;
-            uint32_t size = regs->edx;
+			int fd = regs->ebx;
+			char* buffer = (char*)regs->ecx;
+			uint32_t size = regs->edx;
 
-            if (fd == 1 || fd == 2) { 
-                // FD 1 is STDOUT..route this directly to the VGA terminal
-                char temp[256];
-                uint32_t to_print = (size < 255) ? size : 255;
-                memcpy(temp, buffer, to_print);
-                temp[to_print] = '\0'; 
-                terminal_print(temp);
-                regs->eax = to_print;
-            } else {
-                //actual file appending via FD is a TODO for later
-                regs->eax = -1;
-            }
-            break;
-        }
+			if (fd == 1 || fd == 2) { // STDOUT/STDERR
+				terminal_print_length(buffer, size); // Direct to VGA
+				regs->eax = size;
+			} else if (fd >= 3 && fd < MAX_FDS && process_fd_table[fd].in_use) {
+				// Redirect the FD write to the actual FAT32 disk
+				vfs_node_t* node = process_fd_table[fd].node;
+				fat32_write_file(node->name, buffer, size); 
+				regs->eax = size;
+			} else {
+				regs->eax = -1;
+			}
+			break;
+		}
         case 24: { // SYS_SBRK: ebx = increment
             int increment = regs->ebx;
             

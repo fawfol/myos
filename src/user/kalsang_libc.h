@@ -40,8 +40,13 @@ INLINE int read(int fd, void* buffer, uint32_t size) {
     return bytes_read;
 }
 
-INLINE void write(int fd, void* data, uint32_t size) {
-    asm volatile("int $0x80" : : "a"(23), "b"(fd), "c"(data), "d"(size) : "memory");
+INLINE int write(int fd, void* data, uint32_t size) {
+    int bytes_written;
+    asm volatile("int $0x80" 
+                 : "=a"(bytes_written) 
+                 : "a"(23), "b"(fd), "c"(data), "d"(size) 
+                 : "memory");
+    return bytes_written;
 }
 
 INLINE void* sbrk(int increment) {

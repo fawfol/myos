@@ -320,7 +320,17 @@ uint8_t hex_pair_to_byte(char h, char l) {
     
     return byte;
 }
-
+void terminal_print_length(char* str, uint32_t len) {
+    for (uint32_t i = 0; i < len; i++) {
+        if (str[i] == '\n') {
+            terminal_index = terminal_index + 80 - (terminal_index % 80);
+        } else {
+            terminal_buffer[terminal_index++] = (uint16_t) str[i] | (uint16_t) current_color << 8;
+        }
+        if (terminal_index >= 2000) terminal_scroll();
+    }
+    update_cursor(terminal_index);
+}
 void run_script(char* filename) {
     // 1.find the script in the VFS
     vfs_node_t* file = vfs_find(vfs_root, filename);
@@ -764,12 +774,41 @@ void execute_command() {
 		    : : "r"(test_msg) : "eax", "ebx"
 		);
 	}
-		// === compliler and run === /
+	// === compliler and run === /
 	else if (strncmp(key_buffer, "run ", 4) == 0) {
-		char* filename = key_buffer + 4;
-		run_kx_file(filename);
-	}
-			
+        char* file = key_buffer + 4;
+        char* args = "";
+        
+        for (int i = 0; file[i] != '\0'; i++) {
+            if (file[i] == ' ') {
+                file[i] = '\0';
+                args = file + i + 1;
+                break;
+            }
+        }
+        
+        run_kx_file(file, args);
+
+        // 1. Clear the shell's command buffer
+        for (int i = 0; i < 256; i++) key_buffer[i] = 0;
+
+        // 2. FORCE the cursor to the START of the next line
+        // We use terminal_index itself to find our current row
+        uint32_t current_row = terminal_index / 80;
+        terminal_index = (current_row + 1) * 80;
+
+        // 3. Screen wrap check: if we hit the bottom, jump to top
+        if (terminal_index >= 2000) {
+            terminal_index = 0;
+        }
+
+        // 4. SYNC: Tell the hardware and the shell exactly where we are
+        update_cursor(terminal_index);
+
+        // 5. Print the prompt at the absolute left edge (Column 0)
+        terminal_print("KalsangOS> ");
+        return;
+    }
 	else if (strcmp(key_buffer, "exec_test") == 0) {
 		terminal_print("Allocating User Space...\n");
 

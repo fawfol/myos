@@ -1,6 +1,7 @@
 #include "vfs.h"
 #include "memory.h"
 #include "shell.h"
+#include "fat32.h" 
 
 vfs_node_t *vfs_root = 0;
 vfs_node_t ramdisk_nodes[32];
@@ -87,38 +88,33 @@ void init_ramdisk(uint32_t location) {
     terminal_print(" files\n");
 
 }
-
 void vfs_create(char* name, char* data, uint32_t size) {
+    // 1. Create the In-Memory Node (for immediate execution)
     vfs_node_t* new_node = (vfs_node_t*)malloc(sizeof(vfs_node_t));
-    if (!new_node) {
-        terminal_print("Error: Out of memory\n");
-        return;
-    }
+    if (!new_node) return;
 
     memset(new_node, 0, sizeof(vfs_node_t));
-
-    for (int i = 0; i < 127 && name[i] != '\0'; i++) {
-        new_node->name[i] = name[i];
-    }
-
+    for (int i = 0; i < 127 && name[i] != '\0'; i++) new_node->name[i] = name[i];
+    
     new_node->length = size;
     new_node->flags = VFS_FILE;
 
     void* file_copy = malloc(size);
-    if (!file_copy) {
-        terminal_print("Error: Out of memory\n");
-        free(new_node);
-        return;
+    if (file_copy) {
+        memcpy(file_copy, data, size);
+        new_node->ptr = (vfs_node_t*)file_copy;
+        new_node->next = vfs_root;
+        vfs_root = new_node;
+        node_count++;
     }
 
-    memcpy(file_copy, data, size);
-    new_node->ptr = (vfs_node_t*)file_copy;
-
-    new_node->next = vfs_root;
-    vfs_root = new_node;
-    node_count++;
+    // 2. The Persistence Bridge: Write to the actual FAT32 Hard Drive
+    // This calls your ATA driver to save the file permanently
+    fat32_write_file(name, data, size); 
+    terminal_print("VFS: Persisted ");
+    terminal_print(name);
+    terminal_print(" to FAT32 disk.\n");
 }
-
 void vfs_delete(char* name) {
     vfs_node_t* prev = 0;
     vfs_node_t* curr = vfs_root;

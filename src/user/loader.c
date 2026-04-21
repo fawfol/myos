@@ -1,29 +1,26 @@
 #include "kalsang_libc.h"
 
-void __attribute__((section(".text.entry"))) _start() {
+void __attribute__((section(".text.entry"))) _start(int argc, char** argv) {
+    
     print("==================================\n");
-    print(" KALSANG OS SYSTEM LOGIN\n");
+    print(" KALSANG OS ARGC/ARGV TESTER\n");
     print("==================================\n");
-    print("Enter password to launch 'hello.kx':\n> ");
+    
+    print("Program Name (argv[0]): ");
+    print(argv[0]);
+    print("\n");
 
-    char buffer[64];
-    //read from keyboard (FD 0)
-    int bytes = read(0, buffer, 64);
+    print("Arguments (argv[1]): ");
+    print(argv[1]);
+    print("\n");
 
-    // Simple password check for "osdev"
-    if (buffer[0] == 'o' && buffer[1] == 's' && buffer[2] == 'd' && 
-        buffer[3] == 'e' && buffer[4] == 'v') {
-        
-        print("Access Granted! Spawning child process...\n");
-        
-        //execute the other program!
-        exec("bin/hello.kx"); 
-        
+    if (argv[1][0] == '\0') {
+        print("No arguments were passed!\n");
     } else {
-        print("Access Denied. Terminating.\n");
-        exit();
+        print("Success! The kernel passed the arguments correctly.\n");
     }
 
-    //keeps GCC happy
+    exit();
+
     for (;;);
 }
