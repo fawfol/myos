@@ -8,7 +8,18 @@
 #include "io.h" 
 
 struct idt_entry_struct idt_entries[256];
-struct idt_ptr_struct   idt_ptr;
+struct idt_ptr_struct idt_ptr;
+
+// --- FILE DESCRIPTOR TABLE ---
+#define MAX_FDS 32
+typedef struct {
+    vfs_node_t* node;
+    uint32_t offset;
+    int in_use;
+} file_descriptor_t;
+
+file_descriptor_t process_fd_table[MAX_FDS];
+// -----------------------------
 
 typedef struct registers {
     uint32_t gs, fs, es, ds;
@@ -19,6 +30,7 @@ typedef struct registers {
 extern volatile bool shell_is_blocking;
 
 //external assembly functions
+uint32_t current_user_brk = 0;
 extern uint32_t kernel_esp_save;
 extern void idt_flush(uint32_t);
 extern void isr33();
@@ -76,12 +88,17 @@ void init_idt() {
 
     idt_flush((uint32_t)&idt_ptr);
 }
-
-/*system call gate init */
 void init_syscalls() {
-    // Flag 0xEE = Present (0x80) | Ring 3 Privilege (0x60) | 32-bit Gate (0x0E)
-    // This explicitly allows User Mode programs to call int 0x80!
-    idt_set_gate(128, (uint32_t)syscall_handler, 0x08, 0xEE); 
+    idt_set_gate(0x80, (uint32_t)syscall_handler, 0x08, 0xEF);
+    
+    //initialize the FD Table
+    for(int i = 0; i < MAX_FDS; i++) {
+        process_fd_table[i].in_use = 0;
+    }
+    //reserve POSIX
+    process_fd_table[0].in_use = 1; // STDIN  (Keyboard)
+    process_fd_table[1].in_use = 1; // STDOUT (Terminal)
+    process_fd_table[2].in_use = 1; // STDERR (Terminal Errors)
 }
 /*dispatcher bridge */ 
 void syscall_dispatcher(registers_t *regs) {
@@ -310,6 +327,104 @@ void syscall_dispatcher(registers_t *regs) {
             vfs_delete(filename);
 
             regs->eax = 1;
+            break;
+        }
+        
+        ///////////////////////////////////////////////////////////////////////////////////////
+        ///////////////////////////////////////////////////////////////////////////////////////
+        /////////////////////////////// 14 15 16 17 18 19/////////////////////////////////////
+        ///////////////////////////////////////////////////////////////////////////////////////
+        ///////////////////////////////////////////////////////////////////////////////////////
+        
+        case 20: { // SYS_OPEN: ebx = filename
+            char* name = (char*)regs->ebx;
+            vfs_node_t* file = vfs_find(vfs_root, name);
+            if (!file) {
+                regs->eax = -1; // File not found
+                break;
+            }
+            int fd = -1;
+            //find the first free FD slot (starting at 3)
+            for (int i = 3; i < MAX_FDS; i++) {
+                if (!process_fd_table[i].in_use) {
+                    process_fd_table[i].in_use = 1;
+                    process_fd_table[i].node = file;
+                    process_fd_table[i].offset = 0; //start reading at byte 0
+                    fd = i;
+                    break;
+                }
+            }
+            regs->eax = fd; //return the FD integer to User Space
+            break;
+        }
+        case 21: { // SYS_CLOSE: ebx = fd
+            int fd = regs->ebx;
+            if (fd >= 3 && fd < MAX_FDS) {
+                process_fd_table[fd].in_use = 0;
+                process_fd_table[fd].node = 0;
+            }
+            regs->eax = 0;
+            break;
+        }
+        case 22: { // SYS_FD_READ: ebx = fd, ecx = buffer, edx = size
+            int fd = regs->ebx;
+            char* buffer = (char*)regs->ecx;
+            uint32_t size = regs->edx;
+
+            if (fd >= 3 && fd < MAX_FDS && process_fd_table[fd].in_use) {
+                vfs_node_t* file = process_fd_table[fd].node;
+                
+                //calculate how many bytes are left in the file
+                uint32_t available = file->length - process_fd_table[fd].offset;
+                uint32_t to_read = (size < available) ? size : available;
+
+                if (to_read > 0) {
+                    memcpy(buffer, (uint8_t*)file->ptr + process_fd_table[fd].offset, to_read);
+                    process_fd_table[fd].offset += to_read; // move the read head forward
+                }
+                regs->eax = to_read; //return bytes actually read
+            } else {
+                regs->eax = 0; //EOF or Bad FD
+            }
+            break;
+        }
+        case 23: { // SYS_FD_WRITE: ebx = fd, ecx = buffer, edx = size
+            int fd = regs->ebx;
+            char* buffer = (char*)regs->ecx;
+            uint32_t size = regs->edx;
+
+            if (fd == 1 || fd == 2) { 
+                // FD 1 is STDOUT..route this directly to the VGA terminal
+                char temp[256];
+                uint32_t to_print = (size < 255) ? size : 255;
+                memcpy(temp, buffer, to_print);
+                temp[to_print] = '\0'; 
+                terminal_print(temp);
+                regs->eax = to_print;
+            } else {
+                //actual file appending via FD is a TODO for later
+                regs->eax = -1;
+            }
+            break;
+        }
+        case 24: { // SYS_SBRK: ebx = increment
+            int increment = regs->ebx;
+            
+            //if user heap hasnt been initialized, grab a massive 1MB chunk 
+            //from the Kernels memory manager to act as the User Heap pool
+            if (current_user_brk == 0) {
+                current_user_brk = (uint32_t)malloc(1024 * 1024); // 1MB User Heap
+                if (!current_user_brk) {
+                    regs->eax = -1; //out of memory
+                    break;
+                }
+            }
+
+            //return the OLD break, then increment it (standard sbrk behavior)
+            uint32_t old_break = current_user_brk;
+            current_user_brk += increment;
+            
+            regs->eax = old_break;
             break;
         }
         default:

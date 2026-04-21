@@ -3,6 +3,8 @@
 #include "shell.h"
 #include "vfs.h"
 
+extern uint32_t current_user_brk;
+
 extern void execute_ring3(uint32_t entry_point, uint32_t user_stack);
 
 void run_kx_file(char* filename) {
@@ -45,7 +47,7 @@ void run_kx_file(char* filename) {
     }
 
     // --- NEW RING 3 ISOLATION CODE ---
-    // Give the user program its own 4KB memory stack!
+    //give user program its own 4KB memory stack
     void* user_stack = malloc(4096); 
     if (!user_stack) {
         terminal_print("Error: out of memory for user stack\n");
@@ -64,7 +66,7 @@ void run_kx_file(char* filename) {
     terminal_print("First byte of code: ");
     terminal_print_hex(code_check[0]);
     terminal_print("\n");
-    
+    current_user_brk = 0; //reset the User Heap tracker for new program
     //jump to User Space (Kernel execution will pause here until SYS_EXIT is called)
     execute_ring3(entry_point, stack_top);
 

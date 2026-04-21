@@ -1,30 +1,34 @@
 #include "kalsang_libc.h"
 
-static char buffer[256];
-static char filename[] = "test.txt";
-
 void _start() {
-    print("User-Land (C): Reading test.txt...\n");
+    print("User-Land: Requesting dynamic memory via malloc()...\n");
 
-    int bytes = read_file(filename, buffer);
+    //ask the kernel for 32 bytes of heap memory
+    char* dynamic_string = (char*)malloc(32);
 
-    if (bytes > 0) {
-        if (bytes >= 255) {
-            bytes = 255;
-        }
-
-        buffer[bytes] = '\0';
-
-        print("File content:\n");
-        print("------------------\n");
-        print(buffer);
-        print("\n------------------\n");
-    } else {
-        print("Error reading file\n");
+    if (dynamic_string == 0) {
+        print("Error: User malloc failed!\n");
+        exit();
     }
 
-    exit();
+    //write into our newly allocated heap
+    dynamic_string[0] = 'H';
+    dynamic_string[1] = 'e';
+    dynamic_string[2] = 'a';
+    dynamic_string[3] = 'p';
+    dynamic_string[4] = ' ';
+    dynamic_string[5] = 'W';
+    dynamic_string[6] = 'o';
+    dynamic_string[7] = 'r';
+    dynamic_string[8] = 'k';
+    dynamic_string[9] = 's';
+    dynamic_string[10] = '!';
+    dynamic_string[11] = '\n';
+    dynamic_string[12] = '\0';
 
-    // keep compiler happy in freestanding mode
+    print("Success! Data stored in user heap: ");
+    print(dynamic_string);
+
+    exit();
     for (;;);
 }
