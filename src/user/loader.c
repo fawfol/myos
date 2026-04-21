@@ -1,9 +1,10 @@
 #include "kalsang_libc.h"
 
-void _start() {
+//force this function to be compiled into the very first bytes of the binary
+void __attribute__((section(".text.entry"))) _start() {
     print("User-Land: Requesting dynamic memory via malloc()...\n");
 
-    //ask the kernel for 32 bytes of heap memory
+    // akk the kernel for 32 bytes of heap memory
     char* dynamic_string = (char*)malloc(32);
 
     if (dynamic_string == 0) {

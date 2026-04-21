@@ -7,6 +7,14 @@ extern uint32_t current_user_brk;
 
 extern void execute_ring3(uint32_t entry_point, uint32_t user_stack);
 
+#include "kx.h"
+#include "memory.h"
+#include "shell.h"
+#include "vfs.h"
+
+extern uint32_t current_user_brk;
+extern void execute_ring3(uint32_t entry_point, uint32_t user_stack);
+
 void run_kx_file(char* filename) {
     vfs_node_t* file = vfs_find(vfs_root, filename);
 
@@ -27,13 +35,14 @@ void run_kx_file(char* filename) {
         return;
     }
 
+    //calculate total size first
     uint32_t total_size = header->code_size + header->data_size;
 
-    void* mem = malloc(total_size);
-    if (!mem) {
-        terminal_print("Error: out of memory for program\n");
-        return;
-    }
+    //load all Ring 3 programs exactly at the 32MB mark in RAM.
+    void* mem = (void*)0x02000000; 
+    
+    // Clear out any leftovers from the previous program
+    memset(mem, 0, total_size); 
 
     uint8_t* src = (uint8_t*)file->ptr + sizeof(kx_header_t);
     uint8_t* dst = (uint8_t*)mem;
@@ -46,32 +55,26 @@ void run_kx_file(char* filename) {
         memcpy(dst + header->code_size, src + header->code_size, header->data_size);
     }
 
-    // --- NEW RING 3 ISOLATION CODE ---
-    //give user program its own 4KB memory stack
+    //give user program its own 4KB memory stack (Stacks can still use malloc)
     void* user_stack = malloc(4096); 
     if (!user_stack) {
         terminal_print("Error: out of memory for user stack\n");
-        free(mem);
         return;
     }
 
+    //reset the User Heap tracker for the new program's sbrk
+    current_user_brk = 0; 
+
     uint32_t entry_point = (uint32_t)mem + header->entry;
-    uint32_t stack_top = (uint32_t)user_stack + 4096; //stack grows downwards
+    uint32_t stack_top = (uint32_t)user_stack + 4096; 
 
     terminal_print("Launching KX program in Ring 3...\n");
 
-
-	//debug
-	uint8_t* code_check = (uint8_t*)entry_point;
-    terminal_print("First byte of code: ");
-    terminal_print_hex(code_check[0]);
-    terminal_print("\n");
-    current_user_brk = 0; //reset the User Heap tracker for new program
-    //jump to User Space (Kernel execution will pause here until SYS_EXIT is called)
+    // Jump to User Space! 
     execute_ring3(entry_point, stack_top);
 
-    // When SYS_EXIT is triggered, the kernel teleports right back here
     terminal_print("\nProgram finished. Memory cleaned.\n");
     free(user_stack);
-    free(mem);
+    
+    //note: We no longer free(mem) here, because mem is a fixed physical address
 }

@@ -12,26 +12,26 @@ mkdir -p tools
 
 # assemble hello
 as --32 src/user/hello.s -o obj/hello_user.o
-ld -m elf_i386 -N -e _start -Ttext 0x00000000 \
+ld -m elf_i386 -N -T src/user/user_linker.ld \
     obj/hello_user.o -o bin/hello.bin --oformat binary
 python3 tools/make_kx.py bin/hello.bin bin/hello.kx
 
 # compile loader.c
 gcc -m32 -ffreestanding -fno-pic -fno-pie -fno-stack-protector \
     -Isrc/user -c src/user/loader.c -o obj/loader.o
-ld -m elf_i386 -N -e _start -Ttext 0x00000000 \
+ld -m elf_i386 -N -T src/user/user_linker.ld \
     obj/loader.o -o bin/loader.bin --oformat binary
 python3 tools/make_kx.py bin/loader.bin bin/loader.kx
 
 # assemble writer
 as --32 src/user/writer.s -o obj/writer_user.o
-ld -m elf_i386 -N -e _start -Ttext 0x00000000 \
+ld -m elf_i386 -N -T src/user/user_linker.ld \
     obj/writer_user.o -o bin/writer.bin --oformat binary
 python3 tools/make_kx.py bin/writer.bin bin/writer.kx
 
 # assemble generator
 as --32 src/user/generator.s -o obj/generator_user.o
-ld -m elf_i386 -N -e _start -Ttext 0x00000000 \
+ld -m elf_i386 -N -T src/user/user_linker.ld \
     obj/generator_user.o -o bin/generator.bin --oformat binary
 python3 tools/make_kx.py bin/generator.bin bin/generator.kx
 
