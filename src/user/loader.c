@@ -1,35 +1,24 @@
 #include "kalsang_libc.h"
 
-//force this function to be compiled into the very first bytes of the binary
+// Remember: We must use our VIP entry section!
 void __attribute__((section(".text.entry"))) _start() {
-    print("User-Land: Requesting dynamic memory via malloc()...\n");
+    
+    print("==================================\n");
+    print(" KALSANG OS INTERACTIVE TERMINAL\n");
+    print("==================================\n");
+    print("What is your name, User?\n> ");
 
-    // akk the kernel for 32 bytes of heap memory
-    char* dynamic_string = (char*)malloc(32);
+    // Allocate a buffer for the user's input
+    char name_buffer[64];
+    
+    // Read from FD 0 (STDIN). This will pause execution until you hit Enter!
+    int bytes = read(0, name_buffer, 64);
 
-    if (dynamic_string == 0) {
-        print("Error: User malloc failed!\n");
-        exit();
-    }
-
-    //write into our newly allocated heap
-    dynamic_string[0] = 'H';
-    dynamic_string[1] = 'e';
-    dynamic_string[2] = 'a';
-    dynamic_string[3] = 'p';
-    dynamic_string[4] = ' ';
-    dynamic_string[5] = 'W';
-    dynamic_string[6] = 'o';
-    dynamic_string[7] = 'r';
-    dynamic_string[8] = 'k';
-    dynamic_string[9] = 's';
-    dynamic_string[10] = '!';
-    dynamic_string[11] = '\n';
-    dynamic_string[12] = '\0';
-
-    print("Success! Data stored in user heap: ");
-    print(dynamic_string);
+    print("Hello, ");
+    print(name_buffer);
+    print("! You are executing code in Ring 3!\n");
 
     exit();
+
     for (;;);
 }

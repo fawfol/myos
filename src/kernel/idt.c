@@ -27,10 +27,12 @@ typedef struct registers {
     uint32_t eip, cs, eflags, useresp, ss;
 } registers_t;
 
-extern volatile bool shell_is_blocking;
+uint32_t current_user_brk = 0;
 
 //external assembly functions
-uint32_t current_user_brk = 0;
+extern volatile bool shell_is_blocking;
+extern volatile uint8_t last_char;
+extern volatile bool char_available;
 extern uint32_t kernel_esp_save;
 extern void idt_flush(uint32_t);
 extern void isr33();
@@ -371,20 +373,53 @@ void syscall_dispatcher(registers_t *regs) {
             char* buffer = (char*)regs->ecx;
             uint32_t size = regs->edx;
 
-            if (fd >= 3 && fd < MAX_FDS && process_fd_table[fd].in_use) {
-                vfs_node_t* file = process_fd_table[fd].node;
+            if (fd == 0) { 
+                // --- STDIN (KEYBOARD) ---
+                uint32_t bytes_read = 0;
                 
-                //calculate how many bytes are left in the file
+                while (bytes_read < size - 1) {
+                    while (!char_available) {
+                        // CRITICAL: Syscalls disable interrupts..must briefly 
+                        // re-enable them (sti), halt the CPU to save power (hlt), 
+                        // and disable them again (cli) when a key wakes us up
+                        asm volatile("sti\n\thlt\n\tcli"); 
+                    }
+                    
+                    char c = last_char;
+                    char_available = false;
+
+                    if (c == '\n') {
+                        terminal_print("\n"); //echo the enter key
+                        break;                //stop reading on Enter
+                    } else if (c == '\b' && bytes_read > 0) {
+                        // Optional: handle backspace (Erase from buffer and screen)
+                        bytes_read--;
+                        terminal_print("\b \b");
+                    } else if (c >= 32 && c <= 126) { 
+                        //standard printable characters
+                        buffer[bytes_read++] = c;
+                        
+                        //echo the character to the VGA screen so the user sees what they type
+                        char str[2] = {c, '\0'};
+                        terminal_print(str);
+                    }
+                }
+                buffer[bytes_read] = '\0'; // Null-terminate the string safely
+                regs->eax = bytes_read;    // Return number of bytes typed
+
+            } else if (fd >= 3 && fd < MAX_FDS && process_fd_table[fd].in_use) {
+                // --- STANDARD FILE READ ---
+                vfs_node_t* file = process_fd_table[fd].node;
                 uint32_t available = file->length - process_fd_table[fd].offset;
                 uint32_t to_read = (size < available) ? size : available;
 
                 if (to_read > 0) {
                     memcpy(buffer, (uint8_t*)file->ptr + process_fd_table[fd].offset, to_read);
-                    process_fd_table[fd].offset += to_read; // move the read head forward
+                    process_fd_table[fd].offset += to_read;
                 }
-                regs->eax = to_read; //return bytes actually read
+                regs->eax = to_read; 
             } else {
-                regs->eax = 0; //EOF or Bad FD
+                regs->eax = 0; // EOF or Bad FD
             }
             break;
         }

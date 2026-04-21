@@ -4,6 +4,8 @@
 #include "vfs.h"
 
 extern uint32_t current_user_brk;
+extern volatile bool char_available;
+extern volatile uint8_t last_char;
 
 extern void execute_ring3(uint32_t entry_point, uint32_t user_stack);
 
@@ -70,7 +72,11 @@ void run_kx_file(char* filename) {
 
     terminal_print("Launching KX program in Ring 3...\n");
 
-    // Jump to User Space! 
+    // --- FLUSH THE GHOST ENTER KEY ---
+    char_available = false;
+    last_char = 0;
+
+    //jump to user space
     execute_ring3(entry_point, stack_top);
 
     terminal_print("\nProgram finished. Memory cleaned.\n");
