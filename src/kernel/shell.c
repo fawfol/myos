@@ -239,7 +239,16 @@ void terminal_scroll() {
     // 4. Move the cursor back
     terminal_index -= 80;
 }
-
+void terminal_backspace() {
+    // use the global uint32_t terminal_index directly!
+    if (terminal_index > 0) {
+        terminal_index--;
+        uint16_t* vga = (uint16_t*)0xB8000;
+        // Overwrite the character with a blank space (0x0F00 = white on black)
+        vga[terminal_index] = (uint16_t)' ' | 0x0F00; 
+        update_cursor(terminal_index);
+    }
+}
 //helper to print numbers (needed for uptime)
 void terminal_print_number(uint32_t num) {
     if (num == 0) {

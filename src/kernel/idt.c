@@ -394,7 +394,7 @@ void syscall_dispatcher(registers_t *regs) {
                     } else if (c == '\b' && bytes_read > 0) {
                         // Optional: handle backspace (Erase from buffer and screen)
                         bytes_read--;
-                        terminal_print("\b \b");
+                        terminal_backspace();
                     } else if (c >= 32 && c <= 126) { 
                         //standard printable characters
                         buffer[bytes_read++] = c;

@@ -20,6 +20,7 @@ void terminal_print_number(uint32_t num);
 void terminal_print_hex(uint8_t value);
 void terminal_clear();
 void terminal_scroll();
+void terminal_backspace();
 void update_cursor(int index);
 
 void execute_command();

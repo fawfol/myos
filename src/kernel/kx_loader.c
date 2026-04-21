@@ -6,6 +6,7 @@
 extern uint32_t current_user_brk;
 extern volatile bool char_available;
 extern volatile uint8_t last_char;
+extern volatile bool shell_is_blocking;
 
 extern void execute_ring3(uint32_t entry_point, uint32_t user_stack);
 
@@ -72,15 +73,19 @@ void run_kx_file(char* filename) {
 
     terminal_print("Launching KX program in Ring 3...\n");
 
-    // --- FLUSH THE GHOST ENTER KEY ---
+    // --- LOCK THE KEYBOARD TO THE USER PROGRAM ---
+    shell_is_blocking = true;
     char_available = false;
     last_char = 0;
 
-    //jump to user space
+    //jumps to user space 
     execute_ring3(entry_point, stack_top);
+
+    // --- WAKE THE SHELL BACK UP ---
+    shell_is_blocking = false;
 
     terminal_print("\nProgram finished. Memory cleaned.\n");
     free(user_stack);
     
-    //note: We no longer free(mem) here, because mem is a fixed physical address
+    //note:  no longer free(mem) here, because mem is a fixed physical address
 }
