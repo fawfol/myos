@@ -789,25 +789,10 @@ void execute_command() {
         
         run_kx_file(file, args);
 
-        // 1. Clear the shell's command buffer
-        for (int i = 0; i < 256; i++) key_buffer[i] = 0;
-
-        // 2. FORCE the cursor to the START of the next line
-        // We use terminal_index itself to find our current row
-        uint32_t current_row = terminal_index / 80;
-        terminal_index = (current_row + 1) * 80;
-
-        // 3. Screen wrap check: if we hit the bottom, jump to top
-        if (terminal_index >= 2000) {
-            terminal_index = 0;
-        }
-
-        // 4. SYNC: Tell the hardware and the shell exactly where we are
-        update_cursor(terminal_index);
-
-        // 5. Print the prompt at the absolute left edge (Column 0)
-        terminal_print("KalsangOS> ");
-        return;
+        // REMOVE all the manual current_row and terminal_index math here.
+        // It is redundant and prone to desync.
+        
+        goto done; // Jump to unified cleanup
     }
 	else if (strcmp(key_buffer, "exec_test") == 0) {
 		terminal_print("Allocating User Space...\n");
@@ -989,13 +974,20 @@ void execute_command() {
         terminal_print(key_buffer);
         terminal_print("\n");
     }
+
 done:
     key_index = 0;
     shell_cursor = 0;
     last_drawn_len = 0;
     key_buffer[0] = '\0';
+    
+    //ensure we start on a fresh line if the program left us in the middle of one
+    if (terminal_index % 80 != 0) {
+        terminal_print("\n");
+    }
     terminal_print("KalsangOS> ");
-    shell_set_line_start();
+    // CRITICAL: Sync the anchor so the keyboard knows where the prompt ended
+    shell_set_line_start(); 
 }
 
 //////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -1059,6 +1051,8 @@ void shell_handle_keypress(int c) {
             key_index++;
             shell_cursor++;
             key_buffer[key_index] = '\0';
+            // Re-sync terminal_index before redrawing
+            terminal_index = shell_line_start; 
             shell_redraw_current_input();
         }
         return;
