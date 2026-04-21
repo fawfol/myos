@@ -62,6 +62,10 @@ INLINE void* malloc(uint32_t size) {
     return mem;
 }
 
+INLINE void exec(char* filename) {
+    asm volatile("int $0x80" : : "a"(25), "b"(filename) : "memory");
+}
+
 INLINE void free(void* ptr) {
     (void)ptr; 
 }

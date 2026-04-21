@@ -30,6 +30,8 @@ typedef struct registers {
 uint32_t current_user_brk = 0;
 
 //external assembly functions
+extern char chain_program_name[64];
+extern void return_to_kernel();
 extern volatile bool shell_is_blocking;
 extern volatile uint8_t last_char;
 extern volatile bool char_available;
@@ -333,8 +335,8 @@ void syscall_dispatcher(registers_t *regs) {
         }
         
         ///////////////////////////////////////////////////////////////////////////////////////
-        ///////////////////////////////////////////////////////////////////////////////////////
-        /////////////////////////////// 14 15 16 17 18 19/////////////////////////////////////
+        ///////////////////////////////////for futr//strings///////////////////////////////////
+        /////////////////////////////// 14 15 16 17 18 19 /////////////////////////////////////
         ///////////////////////////////////////////////////////////////////////////////////////
         ///////////////////////////////////////////////////////////////////////////////////////
         
@@ -460,6 +462,21 @@ void syscall_dispatcher(registers_t *regs) {
             current_user_brk += increment;
             
             regs->eax = old_break;
+            break;
+        }
+        case 25: { // SYS_EXEC: ebx = filename
+            char* name = (char*)regs->ebx;
+            
+            // Copy the requested filename into our global chaining variable
+            int i = 0;
+            while (name[i] != '\0' && i < 63) {
+                chain_program_name[i] = name[i];
+                i++;
+            }
+            chain_program_name[i] = '\0';
+
+            // Teleport back to run_kx_file to clean up and execute the chain!
+            return_to_kernel(); 
             break;
         }
         default:
