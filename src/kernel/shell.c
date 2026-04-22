@@ -197,9 +197,10 @@ void terminal_print(const char* str) {
         } else {
             terminal_buffer[terminal_index++] = (uint16_t) str[i] | (uint16_t) current_color << 8;
         }
-        if (terminal_index >= 2000) {
-        terminal_scroll();
-    }
+        if (terminal_index >= 25 * 80) {
+            terminal_scroll(); // Shift all lines up by one
+            terminal_index = 24 * 80;// Reset index to the start of the last line
+		}
     }
     update_cursor(terminal_index);
 }
