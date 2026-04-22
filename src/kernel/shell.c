@@ -65,13 +65,32 @@ void shell_redraw_input_line(const char* buffer, int len, int cursor_pos) {
     terminal_print(" ");
     update_cursor(shell_prompt_start + cursor_pos);
 }
+void terminal_scroll() {
+    uint16_t* vga = (uint16_t*)0xB8000;
+  
+    int history_index = history_count % MAX_HISTORY; // Math magic to loop back to 0 at 256
+    for (int i = 0; i < 80; i++) {
+        history_buffer[history_index][i] = vga[i]; // vga[i] is the top row (0 to 79)
+    }
+    history_count++; // Log that we saved a line
+
+    for (int i = 0; i < 24 * 80; i++) {
+        vga[i] = vga[i + 80];
+    }
+    
+    for (int i = 24 * 80; i < 25 * 80; i++) {
+        vga[i] = (uint16_t)' ' | (uint16_t)0x0F << 8;
+    }
+    
+    terminal_index -= 80;
+}
 void terminal_scroll_up() {
     if (history_count == 0) return; //nth to see inpast
     
     if (view_offset == 0) {
     //snapshot befoer we leave
         uint16_t* vga = (uint16_t*)0xB8000;
-        for (int i = 0; i < 25 * 80; i++) {
+        for (int i = 80; i < 25 * 80; i++) {
             ((uint16_t*)live_screen)[i] = vga[i];
         }
     }
@@ -82,14 +101,12 @@ void terminal_scroll_up() {
         redraw_view();
     }
 }
-
 void terminal_scroll_down() {
     if (view_offset > 0) {
         view_offset--;
         redraw_view();
     }
 }
-
 void shell_cmd_edit(char* filename);
 extern char keyboard_get_last_char();
 extern void fat32_list_root();
@@ -189,22 +206,31 @@ void terminal_clear() {
     terminal_index = 0;
     update_cursor(terminal_index);
 }
-
 void terminal_print(const char* str) {
-    for (int i = 0; str[i] != '\0'; i++) {
-        if (str[i] == '\n') {
-            terminal_index = terminal_index + 80 - (terminal_index % 80);
-        } else {
-            terminal_buffer[terminal_index++] = (uint16_t) str[i] | (uint16_t) current_color << 8;
-        }
-        if (terminal_index >= 25 * 80) {
-            terminal_scroll(); // Shift all lines up by one
-            terminal_index = 24 * 80;// Reset index to the start of the last line
-		}
+    uint16_t* vga = (uint16_t*)0xB8000;
+    
+    if (view_offset > 0) {
+        view_offset = 0;
+        redraw_view();
     }
+
+    for (size_t i = 0; str[i] != '\0'; i++) {
+        if (str[i] == '\n') {
+            terminal_index += 80 - (terminal_index % 80);
+        } else {
+            vga[terminal_index] = (uint16_t)str[i] | ((uint16_t)0x0F << 8);
+            terminal_index++;
+        }
+
+        // If we hit the bottom of the screen
+        if (terminal_index >= 25 * 80) {
+            terminal_buffer_shift();
+            terminal_index = 24 * 80;  //reset cursor to start of the bottom row
+        }
+    }
+    
     update_cursor(terminal_index);
 }
-
 void terminal_print_hex(uint8_t value)
 {
     char hex[] = "0123456789ABCDEF";
@@ -216,29 +242,30 @@ void terminal_print_hex(uint8_t value)
 
     terminal_print(out);
 }
-
-void terminal_scroll() {
+void terminal_buffer_shift() {
     uint16_t* vga = (uint16_t*)0xB8000;
-    
-    // 1. RESCUE OPERATION: Save the top row into our history buffer before it's gone
-    int history_index = history_count % MAX_HISTORY; // Math magic to loop back to 0 at 256
-    for (int i = 0; i < 80; i++) {
-        history_buffer[history_index][i] = vga[i]; // vga[i] is the top row (0 to 79)
-    }
-    history_count++; // Log that we saved a line
 
-    // 2. Move everything up by one row (80 columns)
-    for (int i = 0; i < 24 * 80; i++) {
+    // save the line that is about to be pushed off-screen into your history buffer!
+    //we grab Row 1 (indexes 80 to 159) because Row 0 is the dashboard.
+    if (history_count < MAX_HISTORY) {
+        for (int i = 0; i < 80; i++) {
+            history_buffer[history_count][i] = vga[80 + i];
+        }
+        history_count++;
+    } else {
+        // if history is full, shift the history buffer itself (optional advanced step)
+        //for now just stop recording new history if it exceeds 256 lines
+    }
+
+    // shift all text on the screen UP by one row (protecting Row 0)
+    for (int i = 80; i < 24 * 80; i++) {
         vga[i] = vga[i + 80];
     }
-    
-    // 3. Clear the very last row (Row 24)
+
+    //Clear the very bottom row (Row 24) to make room for new text
     for (int i = 24 * 80; i < 25 * 80; i++) {
-        vga[i] = (uint16_t)' ' | (uint16_t)0x0F << 8; // Change 0x0F to current_color if you use it
+        vga[i] = (uint16_t)' ' | ((uint16_t)0x0F << 8); // Black background, White text
     }
-    
-    // 4. Move the cursor back
-    terminal_index -= 80;
 }
 void terminal_backspace() {
     // use the global uint32_t terminal_index directly!

@@ -15,6 +15,7 @@
 void init_shell();
 void shell_set_line_start();
 void shell_handle_keypress(int c);
+void terminal_buffer_shift();
 void terminal_print(const char* str);
 void terminal_print_number(uint32_t num);
 void terminal_print_hex(uint8_t value);

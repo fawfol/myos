@@ -34,37 +34,59 @@ void sleep(uint32_t seconds) {
     }
    
 }
-
 void update_clock() {
     uint16_t* vga = (uint16_t*)0xB8000;
-    uint32_t used_mem = 0;
-    uint32_t free_mem = 0;
+    uint32_t used_mem = 0, free_mem = 0;
     get_mem_stats(&used_mem, &free_mem);
 
-    uint32_t temp = used_mem; //display the used bytes
-    int pos = 79; //start at far right edge of the screen
-    
-    //draw " B" at the end (using Light Cyan 0x0B)
-    vga[pos--] = (uint16_t)'B' | (uint16_t)0x0B << 8;
-    vga[pos--] = (uint16_t)' ' | (uint16_t)0x0B << 8;
-
-    //draw the number backwards
-    if (temp == 0) {
-        vga[pos--] = (uint16_t)'0' | (uint16_t)0x0B << 8;
+    // 1. Clear the left side of the dashboard (columns 0 to 39) so old text doesn't stick
+    for (int i = 0; i < 40; i++) {
+        vga[i] = (uint16_t)' ' | ((uint16_t)0x0F << 8);
     }
 
-    while (temp > 0 && pos >= 65) {
-        vga[pos--] = (uint16_t)('0' + (temp % 10)) | (uint16_t)0x0B << 8;
+    // 2. Uptime Timer (Columns 40 to 53)
+    uint32_t total_seconds = timer_ticks / 100;
+    uint32_t s = total_seconds % 60;
+    uint32_t m = (total_seconds / 60) % 60;
+    uint32_t h = total_seconds / 3600;
+
+    char time_str[] = " UP: 00:00:00 ";
+    time_str[5] = '0' + (h / 10); time_str[6] = '0' + (h % 10);
+    time_str[8] = '0' + (m / 10); time_str[9] = '0' + (m % 10);
+    time_str[11] = '0' + (s / 10); time_str[12] = '0' + (s % 10);
+
+    for (int i = 0; i < 14; i++) {
+        vga[40 + i] = (uint16_t)time_str[i] | ((uint16_t)0x0E << 8); // Yellow
+    }
+
+    // 3. CPU Placeholder (Columns 54 to 64)
+    char cpu_str[] = "| CPU: 05% ";
+    for (int i = 0; i < 11; i++) {
+        vga[54 + i] = (uint16_t)cpu_str[i] | ((uint16_t)0x0A << 8); // Light Green
+    }
+
+    // 4. Memory Usage (Columns 65 to 79) - Draws backwards from the right edge
+    uint32_t temp = used_mem; 
+    int pos = 79; 
+    
+    vga[pos--] = (uint16_t)'B' | ((uint16_t)0x0B << 8); // Light Cyan
+    vga[pos--] = (uint16_t)' ' | ((uint16_t)0x0B << 8);
+
+    if (temp == 0) {
+        vga[pos--] = (uint16_t)'0' | ((uint16_t)0x0B << 8);
+    }
+
+    while (temp > 0 && pos >= 71) { // Leave room for "| MEM: " label
+        vga[pos--] = (uint16_t)('0' + (temp % 10)) | ((uint16_t)0x0B << 8);
         temp /= 10;
     }
 
-    //clear any remaining space to left so old text doesnt get stuck
-    while (pos >= 65) {
-        vga[pos--] = (uint16_t)' ' | (uint16_t)0x0F << 8;
+    // Add the "| MEM: " label
+    char mem_lbl[] = "| MEM: ";
+    for (int i = 6; i >= 0; i--) {
+        vga[pos--] = (uint16_t)mem_lbl[i] | ((uint16_t)0x0B << 8);
     }
-    
 }
-
 //play a sound at a specific frequency
 void play_sound(uint32_t nFrequence) {
     uint32_t Div;
