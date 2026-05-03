@@ -24,8 +24,6 @@ void ata_read_sector(uint32_t lba, uint8_t* buffer)
 {
     uint8_t status;
     int timeout = 1000000;
-
-    // wait until not busy
     while ((inb(ATA_STATUS) & ATA_SR_BSY) && timeout--);
 
     if (timeout <= 0)
@@ -43,18 +41,15 @@ void ata_read_sector(uint32_t lba, uint8_t* buffer)
     inb(ATA_STATUS);
     inb(ATA_STATUS);
 
-    // sector count
+    //sector count
     outb(ATA_SECCOUNT0, 1);
 
     // LBA address
     outb(ATA_LBA0, (uint8_t)(lba));
     outb(ATA_LBA1, (uint8_t)(lba >> 8));
     outb(ATA_LBA2, (uint8_t)(lba >> 16));
-
-    // send read command
     outb(ATA_COMMAND, ATA_CMD_READ);
-
-    // reset timeout
+    //timer reset
     timeout = 1000000;
 
     // wait for DRQ
@@ -81,11 +76,9 @@ void ata_write_sector(uint32_t lba, uint8_t* buffer)
 {
     uint8_t status;
     int timeout = 1000000;
-
-    // Wait until not busy
     while ((inb(ATA_STATUS) & ATA_SR_BSY) && timeout--);
 
-    // Select drive and LBA
+    //select drive and LBA
     outb(ATA_HDDEVSEL, 0xE0 | ((lba >> 24) & 0xF));
     outb(ATA_SECCOUNT0, 1);
     outb(ATA_LBA0, (uint8_t)(lba));
@@ -94,8 +87,6 @@ void ata_write_sector(uint32_t lba, uint8_t* buffer)
 
     // Send Write Command
     outb(ATA_COMMAND, ATA_CMD_WRITE);
-
-    // CRITICAL FIX: Wait for the drive to explicitly request data (DRQ bit)
     timeout = 1000000;
     do {
         status = inb(ATA_STATUS);
